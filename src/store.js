@@ -123,7 +123,6 @@ const useStore = create(
         // Don't overwrite players that came via trades - only refresh keepers from keeper list
         // and regenerate picks based on draft position (initial pick distribution)
         const existingAssets = teamAssets[rosterId];
-        const hasExistingData = existingAssets && (existingAssets.players?.length > 0 || existingAssets.picks?.length > 0);
 
         const keeperIds = keepers[rosterId] || [];
         const currentYear = new Date().getFullYear();
