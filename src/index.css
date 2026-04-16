@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+body { background: #0a0c10; color: #e8edf5; font-family: 'DM Sans', sans-serif; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #111418; }
+::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 3px; }
