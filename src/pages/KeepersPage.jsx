@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import useStore, { isOffensive, BASE_OFFENSE_KEEPERS, BASE_DEFENSE_KEEPERS } from '../store';
+import useStore, { isOffensiveForTeam, BASE_OFFENSE_KEEPERS, BASE_DEFENSE_KEEPERS } from '../store';
 
 const POS_COLORS = {
   QB: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -38,19 +38,19 @@ export default function KeepersPage() {
   // Regular keepers = kept players that are NOT bonus-locked
   const regularOffenseKeepers = myKeepers.filter(id => {
     const p = playerDB[id];
-    return p && isOffensive(p.position) && !bonusIdSet.has(id);
+    return p && isOffensiveForTeam(p, myTeam) && !bonusIdSet.has(id);
   });
   const regularDefenseKeepers = myKeepers.filter(id => {
     const p = playerDB[id];
-    return p && !isOffensive(p.position) && !bonusIdSet.has(id);
+    return p && !isOffensiveForTeam(p, myTeam) && !bonusIdSet.has(id);
   });
   const bonusOffensePlayers = myBonusIds.filter(id => {
     const p = playerDB[id];
-    return p && isOffensive(p.position);
+    return p && isOffensiveForTeam(p, myTeam);
   });
   const bonusDefensePlayers = myBonusIds.filter(id => {
     const p = playerDB[id];
-    return p && !isOffensive(p.position);
+    return p && !isOffensiveForTeam(p, myTeam);
   });
 
   // Back-compat vars used further down
@@ -85,7 +85,7 @@ export default function KeepersPage() {
       setSaved(false);
       return;
     }
-    const off = isOffensive(player.position);
+    const off = isOffensiveForTeam({ ...player, full_name: player.name }, myTeam);
     if (off && regularOffenseKeepers.length >= maxOffense) return;
     if (!off && regularDefenseKeepers.length >= maxDefense) return;
     setKeepers(myRosterId, [...myKeepers, player.id]);
@@ -287,7 +287,7 @@ export default function KeepersPage() {
             myPlayers.map(player => {
               const isSelected = myKeepers.includes(player.id);
               const isBonus = bonusIdSet.has(player.id);
-              const off = isOffensive(player.position);
+              const off = isOffensiveForTeam({ ...player, full_name: player.name }, myTeam);
               const canAdd = isBonus
                 ? false
                 : isSelected || (off ? regularOffenseKeepers.length < maxOffense : regularDefenseKeepers.length < maxDefense);

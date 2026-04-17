@@ -206,10 +206,10 @@ export default function TradePage() {
 
   const slotImpact = useMemo(() => {
     return {
-      mine: calculateSlotImpact(mySelected, theirSelected),
-      theirs: calculateSlotImpact(theirSelected, mySelected),
+      mine: calculateSlotImpact(mySelected, theirSelected, myTeam),
+      theirs: calculateSlotImpact(theirSelected, mySelected, targetTeam),
     };
-  }, [mySelected, theirSelected]);
+  }, [mySelected, theirSelected, myTeam, targetTeam]);
 
   const handlePropose = async () => {
     if (!targetTeamId || mySelected.length === 0 || theirSelected.length === 0)

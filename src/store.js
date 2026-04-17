@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { supabase, TABLES } from './utils/supabase';
 
 export const LEAGUE_ID = '1250556742954135552';
+export const DISCORD_TRADE_WEBHOOK =
+  'https://discord.com/api/webhooks/1494742521149132941/nEYQX-UdHNjFUBxoqixYigP66JhvxUymZTdjORxNqWsI0Lrt9qyfEm9f2TSh4voBuafQ';
 export const ROUNDS = 8;
 export const YEARS = [2026, 2027];
 export const BASE_OFFENSE_KEEPERS = 5;
@@ -9,8 +11,37 @@ export const BASE_DEFENSE_KEEPERS = 1;
 export const OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'FB'];
 export const COMMISSIONER_PASSWORD = 'commish2024';
 
+// Per-team keeper-position overrides. Dual-threat players (e.g. Travis Hunter)
+// are Sleeper-coded by their primary offensive slot, but a manager may use
+// them as a defensive keeper. Match by team display name + player full name,
+// both case-insensitive.
+export const KEEPER_POSITION_OVERRIDES = [
+  { teamDisplayName: 'BrendanWalsh10', playerName: 'Travis Hunter', treatAs: 'DEF' },
+];
+
 export function isOffensive(position) {
   return OFFENSE_POSITIONS.includes(position);
+}
+
+// Effective keeper-side classification for a player on a given team.
+// Returns true if the player counts as offensive for keeper-slot math.
+export function isOffensiveForTeam(player, team) {
+  if (!player) return false;
+  const overrides = KEEPER_POSITION_OVERRIDES;
+  const teamName = (team?.displayName || '').toLowerCase();
+  const playerName = (
+    player.full_name ||
+    `${player.first_name || ''} ${player.last_name || ''}`.trim() ||
+    player.name ||
+    ''
+  ).toLowerCase();
+  const override = overrides.find(
+    o =>
+      teamName === o.teamDisplayName.toLowerCase() &&
+      playerName === o.playerName.toLowerCase()
+  );
+  if (override) return override.treatAs === 'OFF';
+  return isOffensive(player.position);
 }
 
 export function validateTrade(sideA, sideB) {
@@ -47,13 +78,24 @@ export function validateTrade(sideA, sideB) {
   return { valid: errors.length === 0, errors };
 }
 
-export function calculateSlotImpact(sent, received) {
+export function calculateSlotImpact(sent, received, myTeam) {
   const sentPlayers = sent.filter(a => a.type === 'player');
   const receivedPlayers = received.filter(a => a.type === 'player');
-  const sentOff = sentPlayers.filter(p => isOffensive(p.position)).length;
-  const sentDef = sentPlayers.filter(p => !isOffensive(p.position)).length;
-  const recvOff = receivedPlayers.filter(p => isOffensive(p.position)).length;
-  const recvDef = receivedPlayers.filter(p => !isOffensive(p.position)).length;
+  // Classify using the evaluating team's overrides so dual-position keepers
+  // (e.g. Travis Hunter on a roster that uses him as DEF) count correctly.
+  const classify = (p) => {
+    if (!myTeam) return isOffensive(p.position);
+    const first = (p.name || '').split(' ')[0] || '';
+    const last = (p.name || '').split(' ').slice(1).join(' ') || '';
+    return isOffensiveForTeam(
+      { ...p, full_name: p.name, first_name: first, last_name: last },
+      myTeam
+    );
+  };
+  const sentOff = sentPlayers.filter(classify).length;
+  const sentDef = sentPlayers.length - sentOff;
+  const recvOff = receivedPlayers.filter(classify).length;
+  const recvDef = receivedPlayers.length - recvOff;
   return {
     offenseBurned: Math.max(0, sentOff - recvOff),
     defenseBurned: Math.max(0, sentDef - recvDef),
@@ -108,6 +150,42 @@ export function deriveBonusPlayers(teams, trades) {
     });
 
   return bonus;
+}
+
+// Fire-and-forget Schefter-style Discord notification for an accepted trade.
+// Failures are swallowed — a down webhook should never block the trade itself.
+export async function notifyDiscordTrade(trade, teams) {
+  try {
+    if (!trade || !teams || !DISCORD_TRADE_WEBHOOK) return;
+    const fromTeam = teams.find(t => t.rosterId === trade.fromRosterId);
+    const toTeam = teams.find(t => t.rosterId === trade.toRosterId);
+    const fromName = fromTeam?.teamName || fromTeam?.displayName || 'Unknown';
+    const toName = toTeam?.teamName || toTeam?.displayName || 'Unknown';
+    const fmt = (assets) =>
+      (assets || [])
+        .map(a => (a.type === 'pick' ? a.label : `${a.name} (${a.position})`))
+        .join(', ') || '—';
+
+    const content = [
+      '@everyone',
+      '🚨🚨🚨 **NEW TRADE ALERT** 🚨🚨🚨',
+      '',
+      `**Sources:** The ${fromName} have traded **${fmt(trade.fromAssets)}** to the ${toName} in exchange for **${fmt(trade.toAssets)}**.`,
+      '',
+      `More details as they become available.`,
+    ].join('\n');
+
+    await fetch(DISCORD_TRADE_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content,
+        allowed_mentions: { parse: ['everyone'] },
+      }),
+    });
+  } catch (e) {
+    console.warn('Discord trade notification failed:', e);
+  }
 }
 
 // Compute pick ownership for every (year, round, originalRoster) slot
@@ -284,7 +362,14 @@ const useStore = create((set, get) => ({
 
       const mockDrafts = {};
       (md.data || []).forEach(row => {
-        mockDrafts[row.roster_id] = { pinHash: row.pin_hash, picks: row.picks || [] };
+        const all = row.picks || [];
+        // mockTrade entries and pick entries share the JSONB array
+        const mockTrades = all.filter(p => p && p.type === 'mockTrade');
+        mockDrafts[row.roster_id] = {
+          pinHash: row.pin_hash,
+          picks: all, // keep raw for round-trip writes
+          mockTrades,
+        };
       });
 
       set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, supabaseLoaded: true });
@@ -363,12 +448,13 @@ const useStore = create((set, get) => ({
     const burned = get().slotsBurned[rosterId] || { offense: 0, defense: 0 };
     const bonusIds = get().bonusPlayers[rosterId] || [];
     const playerDB = get().playerDB;
+    const team = get().teams.find(t => t.rosterId === rosterId);
     let bonusOffense = 0;
     let bonusDefense = 0;
     bonusIds.forEach(id => {
       const p = playerDB[id];
       if (!p) return;
-      if (isOffensive(p.position)) bonusOffense += 1;
+      if (isOffensiveForTeam(p, team)) bonusOffense += 1;
       else bonusDefense += 1;
     });
     return {
@@ -403,12 +489,14 @@ const useStore = create((set, get) => ({
       }
     }
 
+    const fromTeam = get().teams.find(t => t.rosterId === fromRosterId);
+    const toTeam = get().teams.find(t => t.rosterId === toRosterId);
     const trade = {
       id: `trade_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       fromRosterId, toRosterId, fromAssets, toAssets,
       status: 'pending', timestamp: Date.now(),
-      fromSlotImpact: calculateSlotImpact(fromAssets, toAssets),
-      toSlotImpact: calculateSlotImpact(toAssets, fromAssets),
+      fromSlotImpact: calculateSlotImpact(fromAssets, toAssets, fromTeam),
+      toSlotImpact: calculateSlotImpact(toAssets, fromAssets, toTeam),
     };
     set(s => ({ trades: [trade, ...s.trades] }));
 
@@ -468,8 +556,10 @@ const useStore = create((set, get) => ({
     // Update slots burned
     const fromBurned = state.slotsBurned[trade.fromRosterId] || { offense: 0, defense: 0 };
     const toBurned = state.slotsBurned[trade.toRosterId] || { offense: 0, defense: 0 };
-    const fromImpact = trade.fromSlotImpact || calculateSlotImpact(trade.fromAssets, trade.toAssets);
-    const toImpact = trade.toSlotImpact || calculateSlotImpact(trade.toAssets, trade.fromAssets);
+    const fromTeamForImpact = state.teams.find(t => t.rosterId === trade.fromRosterId);
+    const toTeamForImpact = state.teams.find(t => t.rosterId === trade.toRosterId);
+    const fromImpact = trade.fromSlotImpact || calculateSlotImpact(trade.fromAssets, trade.toAssets, fromTeamForImpact);
+    const toImpact = trade.toSlotImpact || calculateSlotImpact(trade.toAssets, trade.fromAssets, toTeamForImpact);
 
     const newSlotsBurned = {
       ...state.slotsBurned,
@@ -501,10 +591,18 @@ const useStore = create((set, get) => ({
         { roster_id: trade.toRosterId, ...newSlotsBurned[trade.toRosterId] },
       ]),
     ]);
+
+    // Schefter-style Discord alert (fire-and-forget)
+    notifyDiscordTrade(trade, state.teams);
   },
 
   saveMockDraft: async (rosterId, pinHash, picks) => {
-    set(s => ({ mockDrafts: { ...s.mockDrafts, [rosterId]: { pinHash, picks } } }));
+    set(s => ({
+      mockDrafts: {
+        ...s.mockDrafts,
+        [rosterId]: { pinHash, picks, mockTrades: [] },
+      },
+    }));
     await supabase.from(TABLES.mockDrafts).upsert({
       roster_id: rosterId, pin_hash: pinHash, picks,
     });
@@ -516,6 +614,43 @@ const useStore = create((set, get) => ({
     set(s => ({ mockDrafts: { ...s.mockDrafts, [rosterId]: { ...mock, picks } } }));
     await supabase.from(TABLES.mockDrafts).update({
       picks, updated_at: new Date().toISOString(),
+    }).eq('roster_id', rosterId);
+  },
+
+  // Hypothetical trades live only inside a user's mock draft board. They do
+  // NOT change real keepers / pick ownership — they just re-shade the mock
+  // draft slots so the user can see "what if A traded B's pick to C?"
+  // Persisted by stuffing mockTrade-typed entries into the mockDrafts.picks
+  // JSONB column (no schema change).
+  addMockTrade: async (rosterId, mockTrade) => {
+    const mock = get().mockDrafts[rosterId];
+    if (!mock) return;
+    const entry = { ...mockTrade, type: 'mockTrade' };
+    const picks = [...(mock.picks || []), entry];
+    set(s => ({ mockDrafts: { ...s.mockDrafts, [rosterId]: { ...mock, picks } } }));
+    await supabase.from(TABLES.mockDrafts).update({
+      picks, updated_at: new Date().toISOString(),
+    }).eq('roster_id', rosterId);
+  },
+
+  removeMockTrade: async (rosterId, mockTradeId) => {
+    const mock = get().mockDrafts[rosterId];
+    if (!mock) return;
+    const picks = (mock.picks || []).filter(
+      p => !(p && p.type === 'mockTrade' && p.id === mockTradeId)
+    );
+    set(s => ({ mockDrafts: { ...s.mockDrafts, [rosterId]: { ...mock, picks } } }));
+    await supabase.from(TABLES.mockDrafts).update({
+      picks, updated_at: new Date().toISOString(),
+    }).eq('roster_id', rosterId);
+  },
+
+  clearMockDraftPicks: async (rosterId) => {
+    const mock = get().mockDrafts[rosterId];
+    if (!mock) return;
+    set(s => ({ mockDrafts: { ...s.mockDrafts, [rosterId]: { ...mock, picks: [] } } }));
+    await supabase.from(TABLES.mockDrafts).update({
+      picks: [], updated_at: new Date().toISOString(),
     }).eq('roster_id', rosterId);
   },
 

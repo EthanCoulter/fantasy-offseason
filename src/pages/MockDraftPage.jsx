@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import useStore, { ROUNDS, YEARS } from '../store';
+import useStore, { ROUNDS, YEARS, validateTrade } from '../store';
 import { hashPin } from '../utils/pinHash';
 
 const POS_COLORS = {
@@ -99,6 +99,198 @@ function PinScreen({ mode, onSubmit, onReset, error }) {
           Forgot PIN? Reset board (wipes your picks)
         </button>
       )}
+    </div>
+  );
+}
+
+function HypotheticalTradeModal({ open, onClose, teams, teamAssets, onSubmit }) {
+  const [sideAId, setSideAId] = useState('');
+  const [sideBId, setSideBId] = useState('');
+  const [sideASel, setSideASel] = useState([]);
+  const [sideBSel, setSideBSel] = useState([]);
+
+  const reset = () => {
+    setSideAId(''); setSideBId('');
+    setSideASel([]); setSideBSel([]);
+  };
+
+  const assetsA = sideAId ? (teamAssets[Number(sideAId)] || { players: [], picks: [] }) : { players: [], picks: [] };
+  const assetsB = sideBId ? (teamAssets[Number(sideBId)] || { players: [], picks: [] }) : { players: [], picks: [] };
+  const listA = [...(assetsA.players || []), ...(assetsA.picks || [])];
+  const listB = [...(assetsB.players || []), ...(assetsB.picks || [])];
+
+  const toggle = (list, setList) => (asset) => {
+    setList(prev => prev.some(a => a.id === asset.id) ? prev.filter(a => a.id !== asset.id) : [...prev, asset]);
+  };
+
+  const validation = useMemo(() => {
+    if (sideASel.length === 0 && sideBSel.length === 0) return null;
+    return validateTrade(sideASel, sideBSel);
+  }, [sideASel, sideBSel]);
+
+  const teamA = teams.find(t => t.rosterId === Number(sideAId));
+  const teamB = teams.find(t => t.rosterId === Number(sideBId));
+
+  const handleSubmit = () => {
+    if (!sideAId || !sideBId || sideAId === sideBId) return;
+    if (!validation || !validation.valid) return;
+    onSubmit({
+      id: `mt_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      fromRosterId: Number(sideAId),
+      toRosterId: Number(sideBId),
+      fromAssets: sideASel,
+      toAssets: sideBSel,
+      timestamp: Date.now(),
+    });
+    reset();
+    onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-start justify-center p-4 pt-10 overflow-y-auto" onClick={onClose}>
+      <div className="w-full max-w-3xl bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-[#2a3040] flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-white">Hypothetical Trade</h3>
+            <p className="text-[10px] text-[#4a5568]">
+              Mock draft only — does not affect real league keepers or picks
+            </p>
+          </div>
+          <button onClick={() => { reset(); onClose(); }} className="text-[#8a95a8] hover:text-white">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#8a95a8] mb-1.5">Team A</label>
+              <select
+                value={sideAId}
+                onChange={e => { setSideAId(e.target.value); setSideASel([]); }}
+                className="w-full bg-[#0a0c10] border border-[#2a3040] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00e5a0]"
+              >
+                <option value="">-- Select --</option>
+                {teams.filter(t => String(t.rosterId) !== sideBId).map(t => (
+                  <option key={t.rosterId} value={t.rosterId}>{t.teamName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-[#8a95a8] mb-1.5">Team B</label>
+              <select
+                value={sideBId}
+                onChange={e => { setSideBId(e.target.value); setSideBSel([]); }}
+                className="w-full bg-[#0a0c10] border border-[#2a3040] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#4da6ff]"
+              >
+                <option value="">-- Select --</option>
+                {teams.filter(t => String(t.rosterId) !== sideAId).map(t => (
+                  <option key={t.rosterId} value={t.rosterId}>{t.teamName}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs font-semibold text-[#00e5a0] mb-2">
+                {teamA?.teamName || 'Team A'} sends
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1 bg-[#0a0c10] border border-[#2a3040] rounded-lg p-2">
+                {!sideAId ? (
+                  <div className="text-xs text-[#4a5568] py-2 px-2">Select a team first</div>
+                ) : listA.length === 0 ? (
+                  <div className="text-xs text-[#4a5568] py-2 px-2">No assets</div>
+                ) : listA.map(asset => {
+                  const sel = sideASel.some(a => a.id === asset.id);
+                  const isPick = asset.type === 'pick';
+                  return (
+                    <div
+                      key={asset.id}
+                      onClick={() => toggle(sideASel, setSideASel)(asset)}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-xs ${
+                        sel ? 'bg-[#00e5a0]/10 border-[#00e5a0]/40' : 'bg-transparent border-transparent hover:bg-[#1a1f27]'
+                      }`}
+                    >
+                      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${sel ? 'bg-[#00e5a0] border-[#00e5a0]' : 'border-[#2a3040]'}`}>
+                        {sel && <span className="text-black text-[9px] font-bold">✓</span>}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${isPick ? 'text-[#4da6ff]' : 'text-[#00e5a0]'}`}>
+                        {isPick ? 'PICK' : asset.position}
+                      </span>
+                      <span className="text-white truncate">
+                        {isPick ? asset.label : asset.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold text-[#4da6ff] mb-2">
+                {teamB?.teamName || 'Team B'} sends
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1 bg-[#0a0c10] border border-[#2a3040] rounded-lg p-2">
+                {!sideBId ? (
+                  <div className="text-xs text-[#4a5568] py-2 px-2">Select a team first</div>
+                ) : listB.length === 0 ? (
+                  <div className="text-xs text-[#4a5568] py-2 px-2">No assets</div>
+                ) : listB.map(asset => {
+                  const sel = sideBSel.some(a => a.id === asset.id);
+                  const isPick = asset.type === 'pick';
+                  return (
+                    <div
+                      key={asset.id}
+                      onClick={() => toggle(sideBSel, setSideBSel)(asset)}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-xs ${
+                        sel ? 'bg-[#4da6ff]/10 border-[#4da6ff]/40' : 'bg-transparent border-transparent hover:bg-[#1a1f27]'
+                      }`}
+                    >
+                      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${sel ? 'bg-[#4da6ff] border-[#4da6ff]' : 'border-[#2a3040]'}`}>
+                        {sel && <span className="text-black text-[9px] font-bold">✓</span>}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${isPick ? 'text-[#4da6ff]' : 'text-[#00e5a0]'}`}>
+                        {isPick ? 'PICK' : asset.position}
+                      </span>
+                      <span className="text-white truncate">
+                        {isPick ? asset.label : asset.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {validation && (
+            <div className={`rounded-lg px-3 py-2 border text-xs ${
+              validation.valid
+                ? 'bg-[#00e5a0]/5 border-[#00e5a0]/20 text-[#00e5a0]'
+                : 'bg-red-500/5 border-red-500/20 text-red-400'
+            }`}>
+              {validation.valid ? '✓ Trade is valid' : (
+                <div>
+                  <div className="font-semibold mb-0.5">Invalid trade:</div>
+                  {validation.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => { reset(); onClose(); }}
+              className="px-4 py-2 text-xs text-[#8a95a8] hover:text-white border border-[#2a3040] rounded-lg"
+            >Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={!sideAId || !sideBId || !validation || !validation.valid}
+              className="px-4 py-2 text-xs bg-[#4da6ff] text-black font-semibold rounded-lg hover:bg-[#6db8ff] disabled:opacity-30 disabled:cursor-not-allowed"
+            >Apply to Mock Draft</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -203,12 +395,17 @@ function PlayerPicker({ open, onClose, availablePlayers, onSelect, title }) {
 }
 
 export default function MockDraftPage() {
-  const { currentUser, teams, teamAssets, draftPositions, playerDB, keepers, mockDrafts, saveMockDraft, updateMockDraftPicks, deleteMockDraft } = useStore();
+  const {
+    currentUser, teams, teamAssets, draftPositions, playerDB, keepers,
+    mockDrafts, saveMockDraft, updateMockDraftPicks, deleteMockDraft,
+    addMockTrade, removeMockTrade, clearMockDraftPicks,
+  } = useStore();
   const [unlocked, setUnlocked] = useState(false);
   const [pinError, setPinError] = useState('');
   const [selectedYear, setSelectedYear] = useState(YEARS[0]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeSlot, setActiveSlot] = useState(null);
+  const [mockTradeOpen, setMockTradeOpen] = useState(false);
 
   const rosterId = currentUser?.rosterId;
   const myBoard = rosterId ? mockDrafts[rosterId] : null;
@@ -226,7 +423,9 @@ export default function MockDraftPage() {
     if (!playerDB) return [];
     return Object.entries(playerDB)
       .filter(([id, p]) => p && p.position && MOCK_POOL_POSITIONS.includes(p.position))
-      .filter(([id, p]) => p.team) // drop unsigned / retired noise from IDP pool
+      // Keep rookies (no team yet) and active players. Only drop retired
+      // players so the pool stays browseable without losing draft-class guys.
+      .filter(([id, p]) => p.status !== 'Retired')
       .filter(([id]) => !keptPlayerIds.has(id))
       .map(([id, p]) => ({
         id,
@@ -243,9 +442,17 @@ export default function MockDraftPage() {
       });
   }, [playerDB, keptPlayerIds]);
 
+  // Hypothetical mock trades the user has layered on top of real ownership.
+  // Stored as type='mockTrade' entries inside the mockDraft.picks JSONB array.
+  const mockTrades = useMemo(
+    () => (myBoard?.picks || []).filter(p => p && p.type === 'mockTrade'),
+    [myBoard]
+  );
+
   // Build draft order.
   // Current year: slots keyed by round × rank (1..12) using commissioner rankings.
   // Future year: slots keyed by round × original-roster id (no rank yet).
+  // Hypothetical mockTrades are applied as an ownership overlay.
   const draftSlots = useMemo(() => {
     const slotsByYear = {};
     YEARS.forEach(y => { slotsByYear[y] = []; });
@@ -266,6 +473,30 @@ export default function MockDraftPage() {
         });
       });
     });
+
+    // Apply mockTrades as an overlay on currentOwner, in order. Picks are
+    // matched by (year, round, originalRosterId) — the stable identity.
+    const allSlotsFlat = Object.values(slotsByYear).flat();
+    const findSlot = (pickAsset) => allSlotsFlat.find(
+      s =>
+        s.year === pickAsset.year &&
+        s.round === pickAsset.round &&
+        s.originalOwner === pickAsset.originalRosterId
+    );
+    mockTrades
+      .slice()
+      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      .forEach(mt => {
+        (mt.fromAssets || []).filter(a => a.type === 'pick').forEach(p => {
+          const s = findSlot(p);
+          if (s) s.currentOwner = mt.toRosterId;
+        });
+        (mt.toAssets || []).filter(a => a.type === 'pick').forEach(p => {
+          const s = findSlot(p);
+          if (s) s.currentOwner = mt.fromRosterId;
+        });
+      });
+
     Object.values(slotsByYear).forEach(arr =>
       arr.sort((a, b) =>
         a.round - b.round ||
@@ -274,7 +505,7 @@ export default function MockDraftPage() {
       )
     );
     return slotsByYear;
-  }, [teams, teamAssets]);
+  }, [teams, teamAssets, mockTrades]);
 
   // Picked-player set in my current mock draft (to disable in picker)
   const pickedInMockIds = useMemo(() => {
@@ -320,7 +551,9 @@ export default function MockDraftPage() {
     if (!activeSlot) return;
     const picks = [...(myBoard?.picks || [])];
     const key = activeSlot.slotKey;
-    const existingIdx = picks.findIndex(p => p.key === key);
+    const existingIdx = picks.findIndex(
+      p => p && p.type !== 'mockTrade' && p.key === key
+    );
     const entry = {
       key,
       year: activeSlot.year,
@@ -335,8 +568,16 @@ export default function MockDraftPage() {
   };
 
   const clearPick = async (slot) => {
-    const picks = (myBoard?.picks || []).filter(p => p.key !== slot.slotKey);
+    // Only drop the matching slot entry — keep mockTrades intact
+    const picks = (myBoard?.picks || []).filter(
+      p => !(p && p.type !== 'mockTrade' && p.key === slot.slotKey)
+    );
     await updateMockDraftPicks(rosterId, picks);
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm('Clear all picks AND hypothetical trades from your mock draft board?')) return;
+    await clearMockDraftPicks(rosterId);
   };
 
   const getTeamName = (rid) => teams.find(t => t.rosterId === rid)?.teamName || '—';
@@ -378,8 +619,13 @@ export default function MockDraftPage() {
 
   const slots = draftSlots[selectedYear] || [];
   const pickMap = {};
-  (myBoard?.picks || []).forEach(p => { pickMap[p.key] = p; });
+  (myBoard?.picks || [])
+    .filter(p => p && p.type !== 'mockTrade' && p.key)
+    .forEach(p => { pickMap[p.key] = p; });
   const filledCount = slots.filter(s => pickMap[s.slotKey]).length;
+  const realPickCount = (myBoard?.picks || []).filter(
+    p => p && p.type !== 'mockTrade'
+  ).length;
   const isCurrentMockYear = selectedYear === YEARS[0];
 
   return (
@@ -406,11 +652,65 @@ export default function MockDraftPage() {
             ))}
           </div>
           <button
+            onClick={() => setMockTradeOpen(true)}
+            className="px-3 py-1.5 text-xs text-[#4da6ff] hover:text-white border border-[#4da6ff]/30 hover:border-[#4da6ff] bg-[#4da6ff]/10 rounded-xl transition-colors"
+            title="Simulate a trade in this mock draft only (doesn't affect real league state)"
+          >⇄ Hypothetical Trade</button>
+          <button
+            onClick={handleClearAll}
+            disabled={realPickCount === 0}
+            className="px-3 py-1.5 text-xs text-[#ff6b35] hover:text-white border border-[#ff6b35]/30 hover:border-[#ff6b35] bg-[#ff6b35]/10 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >Clear All</button>
+          <button
             onClick={() => { setUnlocked(false); setPinError(''); }}
             className="px-3 py-1.5 text-xs text-[#8a95a8] hover:text-white border border-[#2a3040] rounded-xl"
           >🔒 Lock</button>
         </div>
       </div>
+
+      {mockTrades.length > 0 && (
+        <div className="bg-[#4da6ff]/5 border border-[#4da6ff]/20 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-[#4da6ff] uppercase tracking-wider">
+              🧪 Hypothetical Trades ({mockTrades.length})
+            </div>
+            <div className="text-[10px] text-[#4a5568]">
+              Mock-only — does not affect real league
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {mockTrades.map(mt => {
+              const fromTeam = teams.find(t => t.rosterId === mt.fromRosterId);
+              const toTeam = teams.find(t => t.rosterId === mt.toRosterId);
+              const fmt = (assets) =>
+                (assets || [])
+                  .map(a => (a.type === 'pick' ? a.label : `${a.name} (${a.position})`))
+                  .join(', ');
+              return (
+                <div
+                  key={mt.id}
+                  className="flex items-center gap-2 text-xs bg-[#0a0c10] border border-[#2a3040] rounded-lg px-3 py-2"
+                >
+                  <div className="flex-1">
+                    <span className="text-white font-semibold">{fromTeam?.teamName}</span>
+                    <span className="text-[#4a5568]"> sends </span>
+                    <span className="text-[#00e5a0]">{fmt(mt.fromAssets)}</span>
+                    <span className="text-[#4a5568]"> to </span>
+                    <span className="text-white font-semibold">{toTeam?.teamName}</span>
+                    <span className="text-[#4a5568]"> for </span>
+                    <span className="text-[#4da6ff]">{fmt(mt.toAssets)}</span>
+                  </div>
+                  <button
+                    onClick={() => removeMockTrade(rosterId, mt.id)}
+                    className="text-[#4a5568] hover:text-red-400 text-sm px-1"
+                    title="Undo this hypothetical"
+                  >✕</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
         <div className="px-5 py-3 border-b border-[#2a3040] flex items-center justify-between">
@@ -512,6 +812,14 @@ export default function MockDraftPage() {
           })}
         </div>
       </div>
+
+      <HypotheticalTradeModal
+        open={mockTradeOpen}
+        onClose={() => setMockTradeOpen(false)}
+        teams={teams}
+        teamAssets={teamAssets}
+        onSubmit={(mt) => addMockTrade(rosterId, mt)}
+      />
 
       <PlayerPicker
         open={pickerOpen}
