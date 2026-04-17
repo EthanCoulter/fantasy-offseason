@@ -32,6 +32,16 @@ export function validateTrade(sideA, sideB) {
     errors.push(`Trading a player requires a player or ${currentYear} pick in return`);
   }
 
+  // Future-year picks must be balanced pick-for-pick per year
+  const futureYears = YEARS.filter(y => y !== currentYear);
+  futureYears.forEach(year => {
+    const aCount = sideA.filter(a => a.type === 'pick' && a.year === year).length;
+    const bCount = sideB.filter(a => a.type === 'pick' && a.year === year).length;
+    if (aCount !== bCount) {
+      errors.push(`${year} picks must be balanced — Side A has ${aCount}, Side B has ${bCount}`);
+    }
+  });
+
   return { valid: errors.length === 0, errors };
 }
 

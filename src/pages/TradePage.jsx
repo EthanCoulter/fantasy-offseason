@@ -251,7 +251,8 @@ export default function TradePage() {
           </h1>
           <p className="text-[#8a95a8] text-sm">
             Only keepers tradable · Players must return a player or 2026 pick ·
-            Trading players for picks burns keeper slots
+            Future-year picks must be balanced · Trading players for picks
+            burns keeper slots
           </p>
         </div>
         {incomingPending.length > 0 && (
