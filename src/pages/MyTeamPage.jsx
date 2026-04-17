@@ -131,7 +131,7 @@ export default function MyTeamPage() {
                     R{pick.round}
                   </span>
                   <span className="text-sm text-white font-medium">{pick.label}</span>
-                  {pick.position !== draftPos && (
+                  {pick.originalRosterId !== myRosterId && (
                     <span className="text-xs text-[#ff6b35] ml-auto">via trade</span>
                   )}
                 </div>
@@ -157,7 +157,7 @@ export default function MyTeamPage() {
                     R{pick.round}
                   </span>
                   <span className="text-sm text-white font-medium">{pick.label}</span>
-                  {pick.position !== draftPos && (
+                  {pick.originalRosterId !== myRosterId && (
                     <span className="text-xs text-[#ff6b35] ml-auto">via trade</span>
                   )}
                 </div>

@@ -211,17 +211,17 @@ export default function TradePage() {
     };
   }, [mySelected, theirSelected]);
 
-  const handlePropose = () => {
+  const handlePropose = async () => {
     if (!targetTeamId || mySelected.length === 0 || theirSelected.length === 0)
       return;
-    const result = proposeTrade(
+    const result = await proposeTrade(
       myRosterId,
       Number(targetTeamId),
       mySelected,
       theirSelected,
     );
     setTradeResult(result);
-    if (result.success) {
+    if (result?.success) {
       setMySelected([]);
       setTheirSelected([]);
       setTargetTeamId("");
