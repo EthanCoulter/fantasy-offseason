@@ -14,26 +14,24 @@ export function isOffensive(position) {
 }
 
 export function validateTrade(sideA, sideB) {
-  const yearCounts = (assets) => {
-    const counts = {};
-    assets.forEach(a => {
-      const key = a.type === 'pick' ? String(a.year) : 'player';
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    return counts;
-  };
-  const aC = yearCounts(sideA);
-  const bC = yearCounts(sideB);
-  const allKeys = new Set([...Object.keys(aC), ...Object.keys(bC)]);
   const errors = [];
-  allKeys.forEach(key => {
-    const a = aC[key] || 0;
-    const b = bC[key] || 0;
-    if (a !== b) {
-      const label = key === 'player' ? 'players' : `${key} picks`;
-      errors.push(`${label}: Side A has ${a}, Side B has ${b} — must be equal`);
-    }
-  });
+  const currentYear = YEARS[0];
+
+  if (sideA.length === 0) errors.push('You must send at least one asset');
+  if (sideB.length === 0) errors.push('You must receive at least one asset');
+
+  const aHasPlayer = sideA.some(a => a.type === 'player');
+  const bHasPlayer = sideB.some(a => a.type === 'player');
+  const aHasCurrentPick = sideA.some(a => a.type === 'pick' && a.year === currentYear);
+  const bHasCurrentPick = sideB.some(a => a.type === 'pick' && a.year === currentYear);
+
+  if (aHasPlayer && !bHasPlayer && !bHasCurrentPick) {
+    errors.push(`Trading a player requires a player or ${currentYear} pick in return`);
+  }
+  if (bHasPlayer && !aHasPlayer && !aHasCurrentPick) {
+    errors.push(`Trading a player requires a player or ${currentYear} pick in return`);
+  }
+
   return { valid: errors.length === 0, errors };
 }
 

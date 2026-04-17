@@ -250,8 +250,8 @@ export default function TradePage() {
             TRADE CENTER
           </h1>
           <p className="text-[#8a95a8] text-sm">
-            Only keepers tradable · Balanced per year · Trading players for
-            picks burns keeper slots
+            Only keepers tradable · Players must return a player or 2026 pick ·
+            Trading players for picks burns keeper slots
           </p>
         </div>
         {incomingPending.length > 0 && (
@@ -385,10 +385,10 @@ export default function TradePage() {
               }`}
             >
               {liveValidation.valid ? (
-                <span>✓ Trade is balanced — ready to propose</span>
+                <span>✓ Trade is valid — ready to propose</span>
               ) : (
                 <div>
-                  <div className="font-semibold mb-1">Trade is unbalanced:</div>
+                  <div className="font-semibold mb-1">Trade is invalid:</div>
                   {liveValidation.errors.map((e, i) => (
                     <div key={i} className="text-xs opacity-80">
                       • {e}
