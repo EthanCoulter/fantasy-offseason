@@ -1,9 +1,94 @@
 import React, { useState } from 'react';
 import useStore, { ROUNDS, YEARS } from '../store';
 
+// Round-based view for future draft years (no commissioner slot numbers yet).
+// For each round 1..ROUNDS, list every original roster's pick, showing
+// current owner (and flagging traded ones).
+function FutureYearRoundView({ teams, teamAssets, selectedYear, teamColors, getTeamShort, getTeamName }) {
+  // Build: picksByRound[round] = [{ originalRosterId, currentOwner, wasTraded }]
+  const picksByRound = {};
+  for (let r = 1; r <= ROUNDS; r++) picksByRound[r] = [];
+
+  teams.forEach(team => {
+    const assets = teamAssets[team.rosterId];
+    (assets?.picks || []).forEach(pick => {
+      if (pick.year !== selectedYear) return;
+      picksByRound[pick.round]?.push({
+        originalRosterId: pick.originalRosterId,
+        currentOwner: team.rosterId,
+        wasTraded: pick.originalRosterId !== team.rosterId,
+      });
+    });
+  });
+
+  // Stable order within a round: by original roster id
+  Object.values(picksByRound).forEach(arr =>
+    arr.sort((a, b) => a.originalRosterId - b.originalRosterId)
+  );
+
+  return (
+    <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
+      <div className="divide-y divide-[#2a3040]">
+        {Array.from({ length: ROUNDS }, (_, i) => i + 1).map(round => (
+          <div key={round} className="px-5 py-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-lg bg-[#1a1f27] border border-[#2a3040] flex items-center justify-center">
+                <span className="text-base font-black text-white">{round}</span>
+              </div>
+              <div className="text-xs font-semibold uppercase tracking-widest text-[#8a95a8]">
+                Round {round}
+              </div>
+              <span className="text-[10px] text-[#4a5568] ml-auto">
+                {picksByRound[round].length} picks
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+              {picksByRound[round].map((p, i) => (
+                <div
+                  key={i}
+                  className={`rounded-lg px-2 py-2 text-center border ${
+                    p.wasTraded
+                      ? 'border-[#ff6b35]/40 bg-[#ff6b35]/10'
+                      : 'border-[#00e5a0]/20 bg-[#00e5a0]/5'
+                  }`}
+                  title={
+                    p.wasTraded
+                      ? `Originally ${getTeamName(p.originalRosterId)}, now ${getTeamName(p.currentOwner)}`
+                      : getTeamName(p.currentOwner)
+                  }
+                >
+                  <div
+                    className="text-[10px] font-bold truncate leading-tight"
+                    style={{ color: teamColors[p.originalRosterId] }}
+                  >
+                    {getTeamShort(p.originalRosterId)}
+                  </div>
+                  {p.wasTraded && (
+                    <div
+                      className="text-[9px] font-semibold truncate leading-tight"
+                      style={{ color: teamColors[p.currentOwner] }}
+                    >
+                      [→ {getTeamShort(p.currentOwner)}]
+                    </div>
+                  )}
+                  <div className="text-[9px] text-[#8a95a8] mt-0.5">R{round}</div>
+                </div>
+              ))}
+              {picksByRound[round].length === 0 && (
+                <div className="col-span-full text-xs text-[#4a5568] italic">No picks</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DraftBoardPage() {
   const { teams, teamAssets, draftPositions } = useStore();
   const [selectedYear, setSelectedYear] = useState(YEARS[0]);
+  const isCurrentYear = selectedYear === YEARS[0];
 
   // rank -> original-owner rosterId
   const rankToTeam = {};
@@ -71,7 +156,7 @@ export default function DraftBoardPage() {
         </div>
       </div>
 
-      {!anyAssigned ? (
+      {!anyAssigned && isCurrentYear ? (
         <div className="bg-[#111418] border border-[#2a3040] rounded-2xl px-5 py-12 text-center">
           <div className="text-3xl mb-2">📋</div>
           <div className="text-sm text-[#8a95a8]">The commissioner needs to assign draft positions first.</div>
@@ -88,8 +173,14 @@ export default function DraftBoardPage() {
               Traded pick
             </span>
             <span className="text-[#4a5568] italic">Format: <span className="text-white">Original</span> [→ <span className="text-[#ff6b35]">Current</span>]</span>
+            {!isCurrentYear && (
+              <span className="text-[#4da6ff] italic">
+                · {selectedYear} picks show round only (slots assigned after next season)
+              </span>
+            )}
           </div>
 
+          {isCurrentYear ? (
           <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -160,6 +251,16 @@ export default function DraftBoardPage() {
               </table>
             </div>
           </div>
+          ) : (
+            <FutureYearRoundView
+              teams={teams}
+              teamAssets={teamAssets}
+              selectedYear={selectedYear}
+              teamColors={teamColors}
+              getTeamShort={getTeamShort}
+              getTeamName={getTeamName}
+            />
+          )}
 
           {/* Per-team pick counts */}
           <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
@@ -171,7 +272,11 @@ export default function DraftBoardPage() {
                 const assets = teamAssets[team.rosterId];
                 const picks = (assets?.picks || [])
                   .filter(p => p.year === selectedYear)
-                  .sort((a, b) => a.round - b.round || (a.position || 99) - (b.position || 99));
+                  .sort((a, b) =>
+                    a.round - b.round ||
+                    (a.position || 99) - (b.position || 99) ||
+                    a.originalRosterId - b.originalRosterId
+                  );
                 return (
                   <div key={team.rosterId} className="flex items-center gap-3 px-5 py-3">
                     <div className="w-8 h-8 rounded-lg bg-[#1a1f27] border border-[#2a3040] flex items-center justify-center shrink-0">

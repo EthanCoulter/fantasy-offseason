@@ -160,14 +160,21 @@ function computeTeamAssets(teams, rankings, keepers, playerDB, ownership) {
     });
   });
 
+  const currentYear = YEARS[0];
   Object.entries(ownership).forEach(([key, currentOwner]) => {
     const [yearStr, roundStr, origStr] = key.split('_');
     const year = Number(yearStr);
     const round = Number(roundStr);
     const originalRosterId = Number(origStr);
-    const rank = rankings[originalRosterId];
+    const isCurrentYear = year === currentYear;
+    // Only the current draft year uses commissioner-assigned slot numbers.
+    // Future-year picks carry only round + original-owner identity.
+    const rank = isCurrentYear ? rankings[originalRosterId] : null;
     if (!teamAssets[currentOwner]) return;
     const slot = rank || null;
+    const label = isCurrentYear
+      ? (slot ? `${year} ${round}.${String(slot).padStart(2, '0')}` : `${year} R${round} (TBD)`)
+      : `${year} R${round}`;
     teamAssets[currentOwner].picks.push({
       id: `pick_${year}_${round}_${originalRosterId}`,
       year, round,
@@ -175,7 +182,7 @@ function computeTeamAssets(teams, rankings, keepers, playerDB, ownership) {
       currentRosterId: currentOwner,
       position: slot,
       originalPosition: slot,
-      label: slot ? `${year} ${round}.${String(slot).padStart(2, '0')}` : `${year} R${round} (TBD)`,
+      label,
       type: 'pick',
     });
   });

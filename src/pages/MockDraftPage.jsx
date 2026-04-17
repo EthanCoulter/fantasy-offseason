@@ -243,24 +243,36 @@ export default function MockDraftPage() {
       });
   }, [playerDB, keptPlayerIds]);
 
-  // Build draft order: for each (year, round, rank 1-12) get current owner
+  // Build draft order.
+  // Current year: slots keyed by round × rank (1..12) using commissioner rankings.
+  // Future year: slots keyed by round × original-roster id (no rank yet).
   const draftSlots = useMemo(() => {
     const slotsByYear = {};
     YEARS.forEach(y => { slotsByYear[y] = []; });
     teams.forEach(team => {
       const assets = teamAssets[team.rosterId];
       (assets?.picks || []).forEach(pick => {
-        if (!pick.position) return;
+        const isCurrent = pick.year === YEARS[0];
+        if (isCurrent && !pick.position) return; // current year needs a rank
         slotsByYear[pick.year]?.push({
           round: pick.round,
-          rank: pick.position,
+          rank: pick.position || null,
           currentOwner: pick.currentRosterId,
           originalOwner: pick.originalRosterId,
           year: pick.year,
+          slotKey: isCurrent
+            ? `${pick.year}_${pick.round}_${pick.position}`
+            : `${pick.year}_${pick.round}_orig${pick.originalRosterId}`,
         });
       });
     });
-    Object.values(slotsByYear).forEach(arr => arr.sort((a, b) => a.round - b.round || a.rank - b.rank));
+    Object.values(slotsByYear).forEach(arr =>
+      arr.sort((a, b) =>
+        a.round - b.round ||
+        (a.rank || 0) - (b.rank || 0) ||
+        a.originalOwner - b.originalOwner
+      )
+    );
     return slotsByYear;
   }, [teams, teamAssets]);
 
@@ -307,16 +319,23 @@ export default function MockDraftPage() {
   const selectPlayer = async (player) => {
     if (!activeSlot) return;
     const picks = [...(myBoard?.picks || [])];
-    const key = `${activeSlot.year}_${activeSlot.round}_${activeSlot.rank}`;
+    const key = activeSlot.slotKey;
     const existingIdx = picks.findIndex(p => p.key === key);
-    const entry = { key, year: activeSlot.year, round: activeSlot.round, rank: activeSlot.rank, playerId: player.id };
+    const entry = {
+      key,
+      year: activeSlot.year,
+      round: activeSlot.round,
+      rank: activeSlot.rank,
+      originalOwner: activeSlot.originalOwner,
+      playerId: player.id,
+    };
     if (existingIdx >= 0) picks[existingIdx] = entry;
     else picks.push(entry);
     await updateMockDraftPicks(rosterId, picks);
   };
 
   const clearPick = async (slot) => {
-    const picks = (myBoard?.picks || []).filter(p => p.key !== `${slot.year}_${slot.round}_${slot.rank}`);
+    const picks = (myBoard?.picks || []).filter(p => p.key !== slot.slotKey);
     await updateMockDraftPicks(rosterId, picks);
   };
 
@@ -360,7 +379,8 @@ export default function MockDraftPage() {
   const slots = draftSlots[selectedYear] || [];
   const pickMap = {};
   (myBoard?.picks || []).forEach(p => { pickMap[p.key] = p; });
-  const filledCount = slots.filter(s => pickMap[`${s.year}_${s.round}_${s.rank}`]).length;
+  const filledCount = slots.filter(s => pickMap[s.slotKey]).length;
+  const isCurrentMockYear = selectedYear === YEARS[0];
 
   return (
     <div className="space-y-6">
@@ -394,25 +414,40 @@ export default function MockDraftPage() {
 
       <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
         <div className="px-5 py-3 border-b border-[#2a3040] flex items-center justify-between">
-          <h2 className="font-semibold text-white text-sm">{selectedYear} Draft Predictions</h2>
+          <h2 className="font-semibold text-white text-sm">
+            {selectedYear} Draft Predictions
+            {!isCurrentMockYear && (
+              <span className="ml-2 text-[11px] text-[#4da6ff] font-normal">
+                round-only · no slot numbers yet
+              </span>
+            )}
+          </h2>
           <span className="text-xs text-[#8a95a8]">Click any slot to pick a player</span>
         </div>
         <div className="divide-y divide-[#2a3040]">
-          {Array.from({ length: ROUNDS }, (_, i) => i + 1).map(round => (
+          {Array.from({ length: ROUNDS }, (_, i) => i + 1).map(round => {
+            const roundSlots = isCurrentMockYear
+              ? Array.from({ length: 12 }, (_, i) => i + 1).map(rank =>
+                  slots.find(s => s.round === round && s.rank === rank) || null
+                )
+              : slots.filter(s => s.round === round);
+
+            return (
             <div key={round} className="px-5 py-3">
               <div className="text-[10px] font-bold uppercase tracking-widest text-[#8a95a8] mb-2">Round {round}</div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(rank => {
-                  const slot = slots.find(s => s.round === round && s.rank === rank);
+                {roundSlots.map((slot, idx) => {
                   if (!slot) {
                     return (
-                      <div key={rank} className="rounded-lg border border-dashed border-[#2a3040] p-2 text-center text-[10px] text-[#4a5568]">
-                        {round}.{String(rank).padStart(2, '0')} —
+                      <div
+                        key={`empty-${round}-${idx}`}
+                        className="rounded-lg border border-dashed border-[#2a3040] p-2 text-center text-[10px] text-[#4a5568]"
+                      >
+                        {round}.{String(idx + 1).padStart(2, '0')} —
                       </div>
                     );
                   }
-                  const key = `${slot.year}_${slot.round}_${slot.rank}`;
-                  const pick = pickMap[key];
+                  const pick = pickMap[slot.slotKey];
                   const player = pick ? playerDB[pick.playerId] : null;
                   const isTraded = slot.currentOwner !== slot.originalOwner;
                   const playerName = player ? (player.full_name || `${player.first_name || ''} ${player.last_name || ''}`.trim()) : null;
@@ -421,15 +456,19 @@ export default function MockDraftPage() {
                     ? (POS_SLOT_FILL[player.position] || 'bg-[#00e5a0]/5 border-[#00e5a0]/30')
                     : 'bg-[#1a1f27] border-[#2a3040]';
 
+                  const slotLabel = isCurrentMockYear
+                    ? `${round}.${String(slot.rank).padStart(2, '0')}`
+                    : `R${round}`;
+
                   return (
                     <button
-                      key={rank}
+                      key={slot.slotKey}
                       onClick={() => openPicker(slot)}
                       className={`group rounded-lg border p-2 text-left transition-all hover:border-white/40 ${slotFill}`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-bold text-[#8a95a8]">
-                          {round}.{String(rank).padStart(2, '0')}
+                          {slotLabel}
                         </span>
                         {pick && (
                           <span
@@ -440,8 +479,16 @@ export default function MockDraftPage() {
                         )}
                       </div>
                       <div className={`text-[9px] truncate ${isTraded ? 'text-[#ff6b35]' : 'text-[#4a5568]'}`}>
-                        {getTeamShort(slot.currentOwner)}
-                        {isTraded && ` [orig ${getTeamShort(slot.originalOwner)}]`}
+                        {isCurrentMockYear
+                          ? (<>
+                              {getTeamShort(slot.currentOwner)}
+                              {isTraded && ` [orig ${getTeamShort(slot.originalOwner)}]`}
+                            </>)
+                          : (<>
+                              {getTeamShort(slot.originalOwner)}
+                              {isTraded && ` → ${getTeamShort(slot.currentOwner)}`}
+                            </>)
+                        }
                       </div>
                       <div className="mt-1">
                         {pick && player ? (
@@ -461,7 +508,8 @@ export default function MockDraftPage() {
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -470,7 +518,17 @@ export default function MockDraftPage() {
         onClose={() => setPickerOpen(false)}
         availablePlayers={availableForPicker}
         onSelect={selectPlayer}
-        title={activeSlot ? `Pick for ${activeSlot.round}.${String(activeSlot.rank).padStart(2, '0')} — ${getTeamName(activeSlot.currentOwner)}` : 'Select player'}
+        title={activeSlot
+          ? `Pick for ${
+              activeSlot.rank
+                ? `${activeSlot.round}.${String(activeSlot.rank).padStart(2, '0')}`
+                : `${activeSlot.year} R${activeSlot.round}`
+            } — ${getTeamName(activeSlot.currentOwner)}${
+              activeSlot.currentOwner !== activeSlot.originalOwner
+                ? ` (orig ${getTeamName(activeSlot.originalOwner)})`
+                : ''
+            }`
+          : 'Select player'}
       />
     </div>
   );
