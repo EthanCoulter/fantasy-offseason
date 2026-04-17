@@ -250,9 +250,9 @@ export default function TradePage() {
             TRADE CENTER
           </h1>
           <p className="text-[#8a95a8] text-sm">
-            Only keepers tradable · Players must return a player or 2026 pick ·
-            Future-year picks must be balanced · Trading players for picks
-            burns keeper slots
+            Only keepers tradable · Players + 2026 picks must balance in total
+            count · 2027+ picks must balance per year · Trading players for
+            picks burns keeper slots
           </p>
         </div>
         {incomingPending.length > 0 && (

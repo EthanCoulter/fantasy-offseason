@@ -20,16 +20,18 @@ export function validateTrade(sideA, sideB) {
   if (sideA.length === 0) errors.push('You must send at least one asset');
   if (sideB.length === 0) errors.push('You must receive at least one asset');
 
-  const aHasPlayer = sideA.some(a => a.type === 'player');
-  const bHasPlayer = sideB.some(a => a.type === 'player');
-  const aHasCurrentPick = sideA.some(a => a.type === 'pick' && a.year === currentYear);
-  const bHasCurrentPick = sideB.some(a => a.type === 'pick' && a.year === currentYear);
+  // Players + current-year (2026) picks must balance as a combined total count
+  const aCurrentCount =
+    sideA.filter(a => a.type === 'player').length +
+    sideA.filter(a => a.type === 'pick' && a.year === currentYear).length;
+  const bCurrentCount =
+    sideB.filter(a => a.type === 'player').length +
+    sideB.filter(a => a.type === 'pick' && a.year === currentYear).length;
 
-  if (aHasPlayer && !bHasPlayer && !bHasCurrentPick) {
-    errors.push(`Trading a player requires a player or ${currentYear} pick in return`);
-  }
-  if (bHasPlayer && !aHasPlayer && !aHasCurrentPick) {
-    errors.push(`Trading a player requires a player or ${currentYear} pick in return`);
+  if (aCurrentCount !== bCurrentCount) {
+    errors.push(
+      `Players and ${currentYear} picks must balance in total — Side A has ${aCurrentCount}, Side B has ${bCurrentCount}`
+    );
   }
 
   // Future-year picks must be balanced pick-for-pick per year
