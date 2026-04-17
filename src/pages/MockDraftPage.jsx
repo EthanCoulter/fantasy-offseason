@@ -8,8 +8,34 @@ const POS_COLORS = {
   WR: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   TE: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
   K: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  DEF: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  DL: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  DE: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  DT: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  LB: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
+  DB: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
+  CB: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
+  S: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
 };
+
+// Strong per-position fill used on the mock-draft slot once a pick is made
+const POS_SLOT_FILL = {
+  QB: 'bg-red-500/15 border-red-500/50',
+  RB: 'bg-green-500/15 border-green-500/50',
+  WR: 'bg-blue-500/15 border-blue-500/50',
+  TE: 'bg-orange-500/15 border-orange-500/50',
+  K: 'bg-purple-500/15 border-purple-500/50',
+  DL: 'bg-yellow-500/15 border-yellow-500/50',
+  DE: 'bg-yellow-500/15 border-yellow-500/50',
+  DT: 'bg-yellow-500/15 border-yellow-500/50',
+  LB: 'bg-teal-500/15 border-teal-500/50',
+  DB: 'bg-pink-500/15 border-pink-500/50',
+  CB: 'bg-pink-500/15 border-pink-500/50',
+  S: 'bg-pink-500/15 border-pink-500/50',
+};
+
+const OFFENSE_POS = ['QB', 'RB', 'WR', 'TE', 'K'];
+const IDP_POS = ['DL', 'DE', 'DT', 'LB', 'DB', 'CB', 'S'];
+const MOCK_POOL_POSITIONS = [...OFFENSE_POS, ...IDP_POS];
 
 function PinScreen({ mode, onSubmit, onReset, error }) {
   const [pin, setPin] = useState('');
@@ -80,14 +106,30 @@ function PinScreen({ mode, onSubmit, onReset, error }) {
 function PlayerPicker({ open, onClose, availablePlayers, onSelect, title }) {
   const [query, setQuery] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState('adp'); // 'adp' | 'name'
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    return availablePlayers
-      .filter(p => posFilter === 'ALL' || p.position === posFilter)
-      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.team || '').toLowerCase().includes(q))
-      .slice(0, 200);
-  }, [availablePlayers, query, posFilter]);
+    const base = availablePlayers
+      .filter(p => {
+        if (posFilter === 'ALL') return true;
+        if (posFilter === 'IDP') return IDP_POS.includes(p.position);
+        if (posFilter === 'OFF') return OFFENSE_POS.includes(p.position);
+        return p.position === posFilter;
+      })
+      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.team || '').toLowerCase().includes(q));
+
+    const sorted = [...base].sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      // adp — nulls last, then alpha
+      if (a.adp == null && b.adp == null) return a.name.localeCompare(b.name);
+      if (a.adp == null) return 1;
+      if (b.adp == null) return -1;
+      return a.adp - b.adp;
+    });
+
+    return sorted.slice(0, 300);
+  }, [availablePlayers, query, posFilter, sortBy]);
 
   if (!open) return null;
 
@@ -107,7 +149,7 @@ function PlayerPicker({ open, onClose, availablePlayers, onSelect, title }) {
             className="w-full bg-[#1a1f27] border border-[#2a3040] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00e5a0]"
           />
           <div className="flex gap-1.5 flex-wrap">
-            {['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map(p => (
+            {['ALL', 'OFF', 'QB', 'RB', 'WR', 'TE', 'K', 'IDP', 'DL', 'LB', 'DB'].map(p => (
               <button
                 key={p}
                 onClick={() => setPosFilter(p)}
@@ -117,6 +159,23 @@ function PlayerPicker({ open, onClose, availablePlayers, onSelect, title }) {
                     : 'bg-[#1a1f27] text-[#8a95a8] hover:text-white'
                 }`}
               >{p}</button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] uppercase tracking-wider text-[#4a5568]">Sort</span>
+            {[
+              { id: 'adp', label: 'ADP' },
+              { id: 'name', label: 'Name' },
+            ].map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setSortBy(opt.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                  sortBy === opt.id
+                    ? 'bg-[#4da6ff]/20 text-[#4da6ff] border border-[#4da6ff]/40'
+                    : 'bg-[#1a1f27] text-[#8a95a8] hover:text-white border border-transparent'
+                }`}
+              >{opt.label}</button>
             ))}
           </div>
         </div>
@@ -166,7 +225,8 @@ export default function MockDraftPage() {
   const players = useMemo(() => {
     if (!playerDB) return [];
     return Object.entries(playerDB)
-      .filter(([id, p]) => p && p.position && ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].includes(p.position))
+      .filter(([id, p]) => p && p.position && MOCK_POOL_POSITIONS.includes(p.position))
+      .filter(([id, p]) => p.team) // drop unsigned / retired noise from IDP pool
       .filter(([id]) => !keptPlayerIds.has(id))
       .map(([id, p]) => ({
         id,
@@ -357,13 +417,15 @@ export default function MockDraftPage() {
                   const isTraded = slot.currentOwner !== slot.originalOwner;
                   const playerName = player ? (player.full_name || `${player.first_name || ''} ${player.last_name || ''}`.trim()) : null;
 
+                  const slotFill = pick && player
+                    ? (POS_SLOT_FILL[player.position] || 'bg-[#00e5a0]/5 border-[#00e5a0]/30')
+                    : 'bg-[#1a1f27] border-[#2a3040]';
+
                   return (
                     <button
                       key={rank}
                       onClick={() => openPicker(slot)}
-                      className={`group rounded-lg border p-2 text-left transition-all hover:border-[#00e5a0]/40 ${
-                        pick ? 'bg-[#00e5a0]/5 border-[#00e5a0]/30' : 'bg-[#1a1f27] border-[#2a3040]'
-                      }`}
+                      className={`group rounded-lg border p-2 text-left transition-all hover:border-white/40 ${slotFill}`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[10px] font-bold text-[#8a95a8]">

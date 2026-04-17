@@ -13,7 +13,7 @@ const POS_COLORS = {
 function posColor(pos) { return POS_COLORS[pos] || POS_COLORS.default; }
 
 export default function KeepersPage() {
-  const { currentUser, teams, playerDB, keepers, setKeepers, draftPositions, slotsBurned, getMaxKeeperSlots } = useStore();
+  const { currentUser, teams, playerDB, keepers, setKeepers, draftPositions, slotsBurned, getMaxKeeperSlots, bonusPlayers } = useStore();
   const [search, setSearch] = useState('');
   const [saved, setSaved] = useState(false);
 
@@ -26,15 +26,36 @@ export default function KeepersPage() {
   const maxSlots = getMaxKeeperSlots(myRosterId);
   const maxOffense = maxSlots.offense;
   const maxDefense = maxSlots.defense;
+  const bonusOffense = maxSlots.bonusOffense || 0;
+  const bonusDefense = maxSlots.bonusDefense || 0;
 
-  const offenseKeepers = myKeepers.filter(id => {
+  const myBonusIds = useMemo(
+    () => bonusPlayers?.[myRosterId] || [],
+    [bonusPlayers, myRosterId]
+  );
+  const bonusIdSet = useMemo(() => new Set(myBonusIds), [myBonusIds]);
+
+  // Regular keepers = kept players that are NOT bonus-locked
+  const regularOffenseKeepers = myKeepers.filter(id => {
+    const p = playerDB[id];
+    return p && isOffensive(p.position) && !bonusIdSet.has(id);
+  });
+  const regularDefenseKeepers = myKeepers.filter(id => {
+    const p = playerDB[id];
+    return p && !isOffensive(p.position) && !bonusIdSet.has(id);
+  });
+  const bonusOffensePlayers = myBonusIds.filter(id => {
     const p = playerDB[id];
     return p && isOffensive(p.position);
   });
-  const defenseKeepers = myKeepers.filter(id => {
+  const bonusDefensePlayers = myBonusIds.filter(id => {
     const p = playerDB[id];
     return p && !isOffensive(p.position);
   });
+
+  // Back-compat vars used further down
+  const offenseKeepers = regularOffenseKeepers;
+  const defenseKeepers = regularDefenseKeepers;
 
   const myPlayers = useMemo(() => {
     if (!myTeam) return [];
@@ -56,6 +77,8 @@ export default function KeepersPage() {
   }, [myTeam, playerDB, search]);
 
   const toggleKeeper = (player) => {
+    // Bonus-locked players cannot be toggled off — they're forced keepers.
+    if (bonusIdSet.has(player.id)) return;
     const isSelected = myKeepers.includes(player.id);
     if (isSelected) {
       setKeepers(myRosterId, myKeepers.filter(id => id !== player.id));
@@ -63,8 +86,8 @@ export default function KeepersPage() {
       return;
     }
     const off = isOffensive(player.position);
-    if (off && offenseKeepers.length >= maxOffense) return;
-    if (!off && defenseKeepers.length >= maxDefense) return;
+    if (off && regularOffenseKeepers.length >= maxOffense) return;
+    if (!off && regularDefenseKeepers.length >= maxDefense) return;
     setKeepers(myRosterId, [...myKeepers, player.id]);
     setSaved(false);
   };
@@ -84,7 +107,14 @@ export default function KeepersPage() {
         <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
           SELECT KEEPERS
         </h1>
-        <p className="text-[#8a95a8] text-sm">Choose up to {maxOffense} offensive and {maxDefense} defensive player{maxDefense !== 1 ? 's' : ''} to keep</p>
+        <p className="text-[#8a95a8] text-sm">
+          Choose up to {maxOffense} offensive and {maxDefense} defensive player{maxDefense !== 1 ? 's' : ''} to keep
+          {(bonusOffense > 0 || bonusDefense > 0) && (
+            <span className="text-[#4da6ff]">
+              {' '}· + {bonusOffense + bonusDefense} locked bonus slot{(bonusOffense + bonusDefense) > 1 ? 's' : ''} from trades
+            </span>
+          )}
+        </p>
       </div>
 
       {!myDraftPos && (
@@ -109,11 +139,16 @@ export default function KeepersPage() {
         <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#8a95a8]">Offensive Keepers</span>
-            <span className="text-xs text-[#4a5568]">{offenseKeepers.length}/{maxOffense}</span>
+            <span className="text-xs text-[#4a5568]">
+              {regularOffenseKeepers.length}/{maxOffense}
+              {bonusOffense > 0 && (
+                <span className="text-[#4da6ff]"> + {bonusOffensePlayers.length}/{bonusOffense} bonus</span>
+              )}
+            </span>
           </div>
           <div className="flex gap-2 flex-wrap">
             {Array.from({ length: BASE_OFFENSE_KEEPERS }).map((_, i) => {
-              const keeperId = offenseKeepers[i];
+              const keeperId = regularOffenseKeepers[i];
               const p = keeperId ? playerDB[keeperId] : null;
               const isBurned = i >= maxOffense;
               return (
@@ -143,17 +178,41 @@ export default function KeepersPage() {
                 </div>
               );
             })}
+            {bonusOffensePlayers.map(id => {
+              const p = playerDB[id];
+              return (
+                <div
+                  key={`bonus-off-${id}`}
+                  className="flex-1 min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center border-[#4da6ff]/50 bg-[#4da6ff]/5"
+                  title="Bonus keeper — locked from trade"
+                >
+                  {p ? (
+                    <>
+                      <span className="text-xs font-bold text-white leading-tight">🔒 {p.first_name[0]}. {p.last_name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posColor(p.position)}`}>{p.position}</span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-[#4da6ff]">🔒 Bonus</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#8a95a8]">Defensive Keeper</span>
-            <span className="text-xs text-[#4a5568]">{defenseKeepers.length}/{maxDefense}</span>
+            <span className="text-xs text-[#4a5568]">
+              {regularDefenseKeepers.length}/{maxDefense}
+              {bonusDefense > 0 && (
+                <span className="text-[#4da6ff]"> + {bonusDefensePlayers.length}/{bonusDefense} bonus</span>
+              )}
+            </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {Array.from({ length: BASE_DEFENSE_KEEPERS }).map((_, i) => {
-              const keeperId = defenseKeepers[i];
+              const keeperId = regularDefenseKeepers[i];
               const p = keeperId ? playerDB[keeperId] : null;
               const isBurned = i >= maxDefense;
               return (
@@ -183,6 +242,25 @@ export default function KeepersPage() {
                 </div>
               );
             })}
+            {bonusDefensePlayers.map(id => {
+              const p = playerDB[id];
+              return (
+                <div
+                  key={`bonus-def-${id}`}
+                  className="flex-1 h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center border-[#4da6ff]/50 bg-[#4da6ff]/5"
+                  title="Bonus keeper — locked from trade"
+                >
+                  {p ? (
+                    <>
+                      <span className="text-xs font-bold text-white">🔒 {p.first_name[0]}. {p.last_name}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posColor(p.position)}`}>{p.position}</span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-[#4da6ff]">🔒 Bonus</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -208,25 +286,35 @@ export default function KeepersPage() {
           ) : (
             myPlayers.map(player => {
               const isSelected = myKeepers.includes(player.id);
+              const isBonus = bonusIdSet.has(player.id);
               const off = isOffensive(player.position);
-              const canAdd = isSelected || (off ? offenseKeepers.length < maxOffense : defenseKeepers.length < maxDefense);
+              const canAdd = isBonus
+                ? false
+                : isSelected || (off ? regularOffenseKeepers.length < maxOffense : regularDefenseKeepers.length < maxDefense);
 
               return (
                 <div
                   key={player.id}
-                  onClick={() => canAdd && toggleKeeper(player)}
+                  onClick={() => !isBonus && canAdd && toggleKeeper(player)}
                   className={`flex items-center gap-4 px-4 py-3 transition-all ${
-                    isSelected
-                      ? 'bg-[#00e5a0]/5 hover:bg-[#00e5a0]/10'
-                      : canAdd
-                        ? 'hover:bg-[#1a1f27] cursor-pointer'
-                        : 'opacity-40 cursor-not-allowed'
+                    isBonus
+                      ? 'bg-[#4da6ff]/5 cursor-not-allowed'
+                      : isSelected
+                        ? 'bg-[#00e5a0]/5 hover:bg-[#00e5a0]/10'
+                        : canAdd
+                          ? 'hover:bg-[#1a1f27] cursor-pointer'
+                          : 'opacity-40 cursor-not-allowed'
                   }`}
                 >
                   <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
-                    isSelected ? 'border-[#00e5a0] bg-[#00e5a0]' : 'border-[#2a3040]'
+                    isBonus
+                      ? 'border-[#4da6ff] bg-[#4da6ff]'
+                      : isSelected
+                        ? 'border-[#00e5a0] bg-[#00e5a0]'
+                        : 'border-[#2a3040]'
                   }`}>
-                    {isSelected && <span className="text-black text-xs font-bold">✓</span>}
+                    {isBonus ? <span className="text-black text-xs font-bold">🔒</span>
+                      : isSelected && <span className="text-black text-xs font-bold">✓</span>}
                   </div>
 
                   <span className={`text-xs px-2 py-0.5 rounded border font-semibold w-10 text-center ${posColor(player.position)}`}>
@@ -238,9 +326,11 @@ export default function KeepersPage() {
                     {player.nflTeam && <div className="text-xs text-[#4a5568]">{player.nflTeam}</div>}
                   </div>
 
-                  {isSelected && (
+                  {isBonus ? (
+                    <span className="text-[10px] text-[#4da6ff] font-semibold">🔒 BONUS LOCKED</span>
+                  ) : isSelected ? (
                     <span className="text-[10px] text-[#00e5a0] font-semibold">KEEPER</span>
-                  )}
+                  ) : null}
                 </div>
               );
             })

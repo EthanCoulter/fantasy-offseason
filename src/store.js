@@ -60,6 +60,56 @@ export function calculateSlotImpact(sent, received) {
   };
 }
 
+// Derive bonus-keeper players per roster from accepted trade history.
+// Rule: if a roster RECEIVED more players than it SENT in a trade (i.e. traded
+// picks for players), the "excess" received player(s) become bonus-locked
+// keepers for that roster. If a bonus player is later traded away, they're
+// removed from that roster's bonus list. No new bonus is created by even
+// player-for-player swaps.
+export function deriveBonusPlayers(teams, trades) {
+  const bonus = {};
+  (teams || []).forEach(t => { bonus[t.rosterId] = []; });
+
+  (trades || [])
+    .filter(t => t && t.status === 'accepted')
+    .slice()
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+    .forEach(trade => {
+      const fromSent = (trade.fromAssets || []).filter(a => a.type === 'player');
+      const toSent = (trade.toAssets || []).filter(a => a.type === 'player');
+      const fromReceived = toSent;
+      const toReceived = fromSent;
+
+      // First: sent players leave each roster → drop them from bonus list
+      fromSent.forEach(p => {
+        bonus[trade.fromRosterId] = (bonus[trade.fromRosterId] || []).filter(id => id !== p.id);
+      });
+      toSent.forEach(p => {
+        bonus[trade.toRosterId] = (bonus[trade.toRosterId] || []).filter(id => id !== p.id);
+      });
+
+      // Then: side with net player gain locks the "extra" received player(s)
+      const fromNet = fromReceived.length - fromSent.length;
+      if (fromNet > 0) {
+        const extras = fromReceived.slice(-fromNet).map(p => p.id);
+        bonus[trade.fromRosterId] = [
+          ...(bonus[trade.fromRosterId] || []),
+          ...extras.filter(id => !(bonus[trade.fromRosterId] || []).includes(id)),
+        ];
+      }
+      const toNet = toReceived.length - toSent.length;
+      if (toNet > 0) {
+        const extras = toReceived.slice(-toNet).map(p => p.id);
+        bonus[trade.toRosterId] = [
+          ...(bonus[trade.toRosterId] || []),
+          ...extras.filter(id => !(bonus[trade.toRosterId] || []).includes(id)),
+        ];
+      }
+    });
+
+  return bonus;
+}
+
 // Compute pick ownership for every (year, round, originalRoster) slot
 // by applying Sleeper's traded_picks first, then in-app accepted trades in order.
 function buildOwnership(teams, tradedPicks, inAppTrades) {
@@ -164,6 +214,7 @@ const useStore = create((set, get) => ({
   draftPositions: {},
   keepers: {},
   slotsBurned: {},
+  bonusPlayers: {},
   trades: [],
   mockDrafts: {},
   teamAssets: {},
@@ -177,8 +228,18 @@ const useStore = create((set, get) => ({
     const { teams, playerDB, tradedPicks, draftPositions, keepers, trades } = get();
     if (!teams.length) return;
     const ownership = buildOwnership(teams, tradedPicks, trades);
-    const teamAssets = computeTeamAssets(teams, draftPositions, keepers, playerDB, ownership);
-    set({ teamAssets });
+    const bonusPlayers = deriveBonusPlayers(teams, trades);
+
+    // Auto-include bonus players in each roster's keepers list (they are locked).
+    const mergedKeepers = { ...keepers };
+    Object.entries(bonusPlayers).forEach(([rid, ids]) => {
+      const current = new Set(mergedKeepers[rid] || []);
+      (ids || []).forEach(id => current.add(id));
+      mergedKeepers[rid] = Array.from(current);
+    });
+
+    const teamAssets = computeTeamAssets(teams, draftPositions, mergedKeepers, playerDB, ownership);
+    set({ bonusPlayers, teamAssets });
   },
 
   hydrateFromSupabase: async () => {
@@ -283,18 +344,36 @@ const useStore = create((set, get) => ({
   },
 
   setKeepers: async (rosterId, playerIds) => {
-    set(s => ({ keepers: { ...s.keepers, [rosterId]: playerIds } }));
+    // Bonus-locked players must always remain in the keepers list.
+    const bonusIds = get().bonusPlayers[rosterId] || [];
+    const merged = Array.from(new Set([...(playerIds || []), ...bonusIds]));
+    set(s => ({ keepers: { ...s.keepers, [rosterId]: merged } }));
     get().rebuildAssets();
-    await supabase.from(TABLES.keepers).upsert({ roster_id: rosterId, player_ids: playerIds });
+    await supabase.from(TABLES.keepers).upsert({ roster_id: rosterId, player_ids: merged });
   },
 
   getMaxKeeperSlots: (rosterId) => {
     const burned = get().slotsBurned[rosterId] || { offense: 0, defense: 0 };
+    const bonusIds = get().bonusPlayers[rosterId] || [];
+    const playerDB = get().playerDB;
+    let bonusOffense = 0;
+    let bonusDefense = 0;
+    bonusIds.forEach(id => {
+      const p = playerDB[id];
+      if (!p) return;
+      if (isOffensive(p.position)) bonusOffense += 1;
+      else bonusDefense += 1;
+    });
     return {
       offense: Math.max(0, BASE_OFFENSE_KEEPERS - burned.offense),
       defense: Math.max(0, BASE_DEFENSE_KEEPERS - burned.defense),
+      bonusOffense,
+      bonusDefense,
     };
   },
+
+  // Player IDs that are bonus-locked for this roster (cannot be toggled off).
+  getBonusPlayerIds: (rosterId) => get().bonusPlayers[rosterId] || [],
 
   proposeTrade: async (fromRosterId, toRosterId, fromAssets, toAssets) => {
     const validation = validateTrade(fromAssets, toAssets);

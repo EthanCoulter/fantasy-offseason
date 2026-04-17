@@ -262,20 +262,38 @@ export default function TradePage() {
         )}
       </div>
 
-      <div className="flex gap-1 p-1 bg-[#111418] rounded-xl border border-[#2a3040] w-fit">
-        {["propose", "board"].map((tab) => (
+      <div className="flex gap-1 p-1 bg-[#111418] rounded-xl border border-[#2a3040] w-fit flex-wrap">
+        {[
+          { id: "propose", label: "Propose Trade" },
+          {
+            id: "board",
+            label: `Trade Board${
+              myTrades.filter(
+                (t) => t.status === "pending" || t.status === "accepted",
+              ).length > 0
+                ? ` (${myTrades.filter((t) => t.status === "pending" || t.status === "accepted").length})`
+                : ""
+            }`,
+          },
+          {
+            id: "history",
+            label: `League History${
+              trades.filter((t) => t.status === "accepted").length > 0
+                ? ` (${trades.filter((t) => t.status === "accepted").length})`
+                : ""
+            }`,
+          },
+        ].map((tab) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all capitalize ${
-              activeTab === tab
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === tab.id
                 ? "bg-[#1a1f27] text-white shadow"
                 : "text-[#8a95a8] hover:text-white"
             }`}
           >
-            {tab === "propose"
-              ? "Propose Trade"
-              : `Trade Board${trades.length > 0 ? ` (${trades.length})` : ""}`}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -432,13 +450,33 @@ export default function TradePage() {
           </button>
         </div>
       ) : (
+        (() => {
+          // Board tab = my pending + my accepted trades
+          // History tab = ALL league accepted trades (including rejected for auditability? no — only accepted per user req)
+          const visibleTrades =
+            activeTab === "board"
+              ? myTrades.filter(
+                  (t) => t.status === "pending" || t.status === "accepted",
+                )
+              : trades.filter((t) => t.status === "accepted");
+          const emptyMessage =
+            activeTab === "board"
+              ? "No active trades — your pending and accepted trades will appear here."
+              : "No accepted trades in the league yet.";
+          return (
         <div className="space-y-3">
-          {trades.length === 0 ? (
+          {activeTab === "history" && (
+            <div className="text-xs text-[#8a95a8] px-1">
+              All league-wide accepted trades — chronological view of every
+              completed deal.
+            </div>
+          )}
+          {visibleTrades.length === 0 ? (
             <div className="bg-[#111418] border border-[#2a3040] rounded-2xl px-5 py-12 text-center text-[#4a5568] text-sm">
-              No trades yet — be the first to propose one!
+              {emptyMessage}
             </div>
           ) : (
-            trades.map((trade) => {
+            visibleTrades.map((trade) => {
               const fromTeam = teams.find(
                 (t) => t.rosterId === trade.fromRosterId,
               );
@@ -576,6 +614,8 @@ export default function TradePage() {
             })
           )}
         </div>
+          );
+        })()
       )}
     </div>
   );
