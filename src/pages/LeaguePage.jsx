@@ -1,19 +1,55 @@
 import React, { useState } from 'react';
-import useStore from '../store';
+import useStore, { YEARS } from '../store';
+import { downloadCsv, buildLeagueRosterCsv, buildDraftRecapCsv } from '../utils/csv';
 
 const YEAR = new Date().getFullYear();
 
 export default function LeaguePage() {
-  const { teams, getAssets, draftPositions, keepers } = useStore();
+  const { teams, getAssets, draftPositions, keepers, teamAssets, playerDB, draftState, draftOrder } = useStore();
   const [expanded, setExpanded] = useState(null);
+
+  const handleDownloadRoster = () => {
+    const rows = buildLeagueRosterCsv({
+      teams, teamAssets, playerDB, draftState, currentYear: YEARS[0],
+    });
+    const suffix = draftState?.isTrial ? '-TRIAL' : '';
+    downloadCsv(`league-rosters-${YEARS[0]}${suffix}.csv`, rows);
+  };
+
+  const handleDownloadDraft = () => {
+    const rows = buildDraftRecapCsv({ teams, draftState, draftOrder });
+    if (rows.length <= 1) {
+      alert('The draft has not produced any picks yet.');
+      return;
+    }
+    const suffix = draftState?.isTrial ? '-TRIAL' : '';
+    downloadCsv(`${YEARS[0]}-draft-recap${suffix}.csv`, rows);
+  };
+
+  const draftHasPicks = (draftState?.picks?.length || 0) > 0;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
-          LEAGUE OVERVIEW
-        </h1>
-        <p className="text-[#8a95a8] text-sm">All 12 teams — keepers, picks, and draft positions</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
+            LEAGUE OVERVIEW
+          </h1>
+          <p className="text-[#8a95a8] text-sm">All 12 teams — keepers, picks, and draft positions</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={handleDownloadRoster}
+            className="px-3 py-1.5 text-xs font-semibold bg-[#4da6ff]/20 text-[#4da6ff] border border-[#4da6ff]/40 rounded-xl hover:bg-[#4da6ff]/30 transition-colors"
+            title="Keepers + current-year picks + drafted players per team, ready for Excel"
+          >⬇ Rosters CSV</button>
+          {draftHasPicks && (
+            <button
+              onClick={handleDownloadDraft}
+              className="px-3 py-1.5 text-xs font-semibold bg-[#00e5a0]/20 text-[#00e5a0] border border-[#00e5a0]/40 rounded-xl hover:bg-[#00e5a0]/30 transition-colors"
+            >⬇ Draft Recap CSV</button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">

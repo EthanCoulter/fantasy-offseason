@@ -1,0 +1,445 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import useStore, { clockSecondsForRound, YEARS, ROUNDS } from '../store';
+import { downloadCsv, buildDraftRecapCsv } from '../utils/csv';
+
+const POS_COLORS = {
+  QB: 'bg-red-500/15 text-red-400 border-red-500/30',
+  RB: 'bg-green-500/15 text-green-400 border-green-500/30',
+  WR: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  TE: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  K:  'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  DL: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+  DE: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+  DT: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+  LB: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
+  DB: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
+  CB: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
+  S:  'bg-pink-500/15 text-pink-400 border-pink-500/30',
+};
+const posColor = (p) => POS_COLORS[p] || 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040]';
+
+// Replace /draft-pick.mp3 with whatever the user drops in /public later.
+const DRAFT_SOUND_URL = '/draft-pick.mp3';
+
+export default function DraftRoomPage() {
+  const {
+    currentUser,
+    teams,
+    draftPositions,
+    playerDB,
+    keepers,
+    draftState,
+    draftOrder,
+    setDraftMode,
+    makeDraftPick,
+    autoPickBPA,
+    undoLastDraftPick,
+    resetDraft,
+    resetPickClock,
+  } = useStore();
+
+  const isCommish = !!currentUser?.isCommissioner;
+  const [now, setNow] = useState(Date.now());
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [search, setSearch] = useState('');
+  const [posFilter, setPosFilter] = useState('ALL');
+  const lastPickIdxRef = useRef(-1);
+  const audioRef = useRef(null);
+  const [flash, setFlash] = useState(null); // { pickIndex, team, player, pos }
+
+  // 1s ticker for clock readouts
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Fire sound + animation when a new pick lands
+  useEffect(() => {
+    const picks = draftState.picks || [];
+    if (picks.length === 0) { lastPickIdxRef.current = -1; return; }
+    const lastIdx = picks.length - 1;
+    if (lastIdx <= lastPickIdxRef.current) return;
+    lastPickIdxRef.current = lastIdx;
+    const p = picks[lastIdx];
+    const team = teams.find(t => t.rosterId === p.rosterId);
+    setFlash({
+      pickIndex: p.pickIndex,
+      team: team?.teamName || 'Unknown',
+      player: p.playerName,
+      pos: p.position,
+      nflTeam: p.nflTeam,
+    });
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {});
+    }
+    const t = setTimeout(() => setFlash(null), 4500);
+    return () => clearTimeout(t);
+  }, [draftState.picks, teams]);
+
+  const picksCount = (draftState.picks || []).length;
+  const totalPicks = draftOrder.length;
+  const currentSlot = draftOrder[picksCount] || null;
+  const currentTeam = currentSlot ? teams.find(t => t.rosterId === currentSlot.currentRosterId) : null;
+  const originalTeam = currentSlot && currentSlot.originalRosterId !== currentSlot.currentRosterId
+    ? teams.find(t => t.rosterId === currentSlot.originalRosterId)
+    : null;
+
+  const clockSecs = currentSlot ? clockSecondsForRound(currentSlot.round) : 0;
+  const elapsed = draftState.currentPickStartTime
+    ? Math.floor((now - draftState.currentPickStartTime) / 1000)
+    : 0;
+  const remaining = Math.max(0, clockSecs - elapsed);
+  const timerDanger = remaining <= 15 && remaining > 0;
+  const timerExpired = draftState.isActive && remaining === 0 && !!currentSlot;
+
+  // Players already off the board (drafted or kept) — excluded from picker
+  const takenIds = useMemo(() => {
+    const s = new Set();
+    (draftState.picks || []).forEach(p => s.add(p.playerId));
+    Object.values(keepers).forEach(arr => (arr || []).forEach(id => s.add(id)));
+    return s;
+  }, [draftState.picks, keepers]);
+
+  const availablePlayers = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return Object.entries(playerDB || {})
+      .filter(([id, p]) =>
+        p && p.position && p.status !== 'Retired' && !takenIds.has(id)
+      )
+      .map(([id, p]) => ({
+        id,
+        name: p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+        position: p.position,
+        team: p.team,
+        adp: p.search_rank && p.search_rank < 9999 ? p.search_rank : null,
+      }))
+      .filter(p => posFilter === 'ALL' || p.position === posFilter)
+      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.team || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (a.adp == null && b.adp == null) return a.name.localeCompare(b.name);
+        if (a.adp == null) return 1;
+        if (b.adp == null) return -1;
+        return a.adp - b.adp;
+      })
+      .slice(0, 300);
+  }, [playerDB, takenIds, search, posFilter]);
+
+  const handleCommishPick = async (playerId) => {
+    if (!currentSlot) return;
+    await makeDraftPick({ rosterId: currentSlot.currentRosterId, playerId });
+  };
+
+  const handleStart = async () => {
+    if (totalPicks === 0) {
+      alert('Cannot start — draft order is empty. Make sure every team has a draft position assigned.');
+      return;
+    }
+    await setDraftMode(true, draftState.isTrial);
+  };
+
+  const handleStop = async () => {
+    await setDraftMode(false, draftState.isTrial);
+  };
+
+  const handleToggleTrial = async () => {
+    // Flip the trial flag. If draft is mid-progress, warn.
+    if ((draftState.picks || []).length > 0 && !window.confirm('Switching trial mode will re-label existing picks. Continue?')) return;
+    await setDraftMode(draftState.isActive, !draftState.isTrial);
+  };
+
+  const handleDownloadCsv = () => {
+    const rows = buildDraftRecapCsv({ teams, draftState, draftOrder });
+    if (rows.length <= 1) {
+      alert('No picks yet — nothing to export.');
+      return;
+    }
+    const suffix = draftState.isTrial ? '-TRIAL' : '';
+    downloadCsv(`${YEARS[0]}-draft-recap${suffix}.csv`, rows);
+  };
+
+  const handleResetConfirmed = async () => {
+    setConfirmingReset(false);
+    await resetDraft();
+  };
+
+  if (!isCommish) {
+    return (
+      <div className="bg-[#111418] border border-[#2a3040] rounded-2xl px-5 py-12 text-center text-[#8a95a8]">
+        The Draft Room is commissioner-only. Managers see their pick tab when the draft is live.
+      </div>
+    );
+  }
+
+  // --- Draft board grid: teams × rounds, filled as picks land ---
+  const teamsBySlot = [...teams].filter(t => draftPositions[t.rosterId]).sort(
+    (a, b) => draftPositions[a.rosterId] - draftPositions[b.rosterId]
+  );
+  const pickByCell = {};
+  (draftState.picks || []).forEach(p => {
+    pickByCell[`${p.round}_${p.slot}`] = p;
+  });
+
+  return (
+    <div className="space-y-6">
+      <audio ref={audioRef} src={DRAFT_SOUND_URL} preload="auto" />
+
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1
+            className="text-2xl font-black text-white"
+            style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
+          >
+            DRAFT ROOM · {YEARS[0]}
+          </h1>
+          <p className="text-[#8a95a8] text-sm">
+            {draftState.isActive ? (
+              <span className="text-[#00e5a0] font-semibold">● LIVE</span>
+            ) : draftState.endedAt ? (
+              <span className="text-[#4a5568]">Complete</span>
+            ) : (
+              <span className="text-[#8a95a8]">Not started</span>
+            )}
+            {draftState.isTrial && (
+              <span className="ml-3 text-yellow-400 font-semibold">🧪 TRIAL MODE</span>
+            )}
+            {' · '}
+            {picksCount}/{totalPicks} picks made
+          </p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={handleToggleTrial}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors ${
+              draftState.isTrial
+                ? 'bg-yellow-400/20 text-yellow-400 border-yellow-400/40'
+                : 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040] hover:text-white'
+            }`}
+          >
+            🧪 Trial Mode {draftState.isTrial ? 'ON' : 'OFF'}
+          </button>
+          {!draftState.isActive ? (
+            <button
+              onClick={handleStart}
+              className="px-4 py-1.5 text-xs font-semibold bg-[#00e5a0] text-black rounded-xl hover:bg-[#00ffb3] transition-colors"
+            >▶ Start Draft</button>
+          ) : (
+            <button
+              onClick={handleStop}
+              className="px-4 py-1.5 text-xs font-semibold bg-[#ff6b35]/20 text-[#ff6b35] border border-[#ff6b35]/40 rounded-xl hover:bg-[#ff6b35]/30 transition-colors"
+            >⏸ Pause</button>
+          )}
+          <button
+            onClick={handleDownloadCsv}
+            className="px-3 py-1.5 text-xs font-semibold bg-[#4da6ff]/20 text-[#4da6ff] border border-[#4da6ff]/40 rounded-xl hover:bg-[#4da6ff]/30 transition-colors"
+          >⬇ Download CSV</button>
+          <button
+            onClick={() => setConfirmingReset(true)}
+            className="px-3 py-1.5 text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/20 transition-colors"
+          >Reset</button>
+        </div>
+      </div>
+
+      {confirmingReset && (
+        <div className="bg-red-500/10 border border-red-500/40 rounded-2xl p-4 flex items-center justify-between gap-4">
+          <div className="text-sm text-red-400">
+            Wipe every draft pick? {draftState.isTrial ? 'Trial picks will be cleared.' : 'Real picks will be permanently removed.'}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirmingReset(false)} className="px-3 py-1.5 text-xs text-[#8a95a8] border border-[#2a3040] rounded-lg">Cancel</button>
+            <button onClick={handleResetConfirmed} className="px-3 py-1.5 text-xs font-semibold bg-red-500 text-white rounded-lg">Yes, Wipe</button>
+          </div>
+        </div>
+      )}
+
+      {/* On-the-Clock banner */}
+      {currentSlot ? (
+        <div className={`relative overflow-hidden rounded-2xl border-2 ${
+          timerExpired
+            ? 'bg-red-500/10 border-red-500/60'
+            : timerDanger
+              ? 'bg-yellow-500/10 border-yellow-500/60 animate-pulse'
+              : 'bg-[#00e5a0]/5 border-[#00e5a0]/40'
+        }`}>
+          <div className="px-5 py-4 flex items-center gap-5 flex-wrap">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-[#8a95a8]">On the Clock</div>
+              <div
+                className="text-3xl md:text-4xl font-black text-white"
+                style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.03em' }}
+              >
+                {currentTeam?.teamName || '—'}
+              </div>
+              <div className="text-xs text-[#8a95a8]">
+                Round {currentSlot.round}, Pick {currentSlot.slot} (overall #{currentSlot.pickIndex + 1})
+                {originalTeam && (
+                  <span className="text-[#ff6b35] ml-2">via trade from {originalTeam.teamName}</span>
+                )}
+              </div>
+            </div>
+            <div className="ml-auto text-center">
+              <div
+                className={`text-5xl font-black tabular-nums ${
+                  timerExpired ? 'text-red-400' : timerDanger ? 'text-yellow-400' : 'text-[#00e5a0]'
+                }`}
+                style={{ fontFamily: 'Bebas Neue, sans-serif' }}
+              >
+                {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
+              </div>
+              <div className="text-[10px] uppercase tracking-widest text-[#8a95a8]">
+                {clockSecs}s on the clock
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 pb-4 flex flex-wrap gap-2">
+            <button
+              onClick={autoPickBPA}
+              className="px-3 py-1.5 text-xs font-semibold bg-[#00e5a0]/20 text-[#00e5a0] border border-[#00e5a0]/40 rounded-lg hover:bg-[#00e5a0]/30"
+            >⚡ Auto-pick (BPA)</button>
+            <button
+              onClick={resetPickClock}
+              className="px-3 py-1.5 text-xs font-semibold bg-[#1a1f27] text-[#8a95a8] border border-[#2a3040] rounded-lg hover:text-white"
+            >↻ Reset Clock</button>
+            <button
+              onClick={undoLastDraftPick}
+              disabled={picksCount === 0}
+              className="px-3 py-1.5 text-xs font-semibold bg-[#1a1f27] text-[#8a95a8] border border-[#2a3040] rounded-lg hover:text-white disabled:opacity-30"
+            >↶ Undo Last</button>
+          </div>
+        </div>
+      ) : draftState.endedAt ? (
+        <div className="bg-[#00e5a0]/10 border border-[#00e5a0]/30 rounded-2xl p-6 text-center">
+          <div className="text-3xl mb-1">🏆</div>
+          <div className="text-xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>DRAFT COMPLETE</div>
+          <div className="text-xs text-[#8a95a8] mt-1">Download the CSV to share with the league.</div>
+        </div>
+      ) : (
+        <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-6 text-center text-[#8a95a8] text-sm">
+          {totalPicks === 0
+            ? 'Assign every team a draft position on the Commissioner page first.'
+            : 'Ready — click Start Draft to go live.'}
+        </div>
+      )}
+
+      {/* Flash animation — last pick */}
+      {flash && (
+        <div className="bg-[#4da6ff]/10 border border-[#4da6ff]/40 rounded-2xl p-5 flex items-center gap-4 animate-fade-in">
+          <div className="text-4xl shrink-0">🚨</div>
+          <div className="flex-1">
+            <div className="text-[10px] uppercase tracking-widest text-[#4da6ff]">Pick #{flash.pickIndex + 1}</div>
+            <div className="text-lg font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>
+              {flash.team} selects {flash.player}
+            </div>
+            <div className="flex items-center gap-2 text-xs mt-1">
+              <span className={`px-1.5 py-0.5 rounded border font-semibold ${posColor(flash.pos)}`}>{flash.pos}</span>
+              {flash.nflTeam && <span className="text-[#8a95a8]">{flash.nflTeam}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Commissioner can pick on behalf (useful for in-person draft when a
+          manager is away from a device). */}
+      {currentSlot && draftState.isActive && (
+        <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#2a3040] flex items-center justify-between flex-wrap gap-2">
+            <h2 className="font-semibold text-white text-sm">Make pick for {currentTeam?.teamName}</h2>
+            <div className="flex gap-1.5 flex-wrap">
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="bg-[#1a1f27] border border-[#2a3040] rounded-lg px-3 py-1 text-xs text-white focus:outline-none focus:border-[#00e5a0]"
+              />
+              {['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DL', 'LB', 'DB'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPosFilter(p)}
+                  className={`px-2 py-1 rounded text-[10px] font-semibold ${
+                    posFilter === p ? 'bg-[#00e5a0] text-black' : 'bg-[#1a1f27] text-[#8a95a8]'
+                  }`}
+                >{p}</button>
+              ))}
+            </div>
+          </div>
+          <div className="max-h-80 overflow-y-auto divide-y divide-[#2a3040]">
+            {availablePlayers.length === 0 ? (
+              <div className="px-5 py-6 text-center text-[#4a5568] text-sm">No players found</div>
+            ) : availablePlayers.map(p => (
+              <button
+                key={p.id}
+                onClick={() => handleCommishPick(p.id)}
+                className="w-full px-5 py-2 flex items-center gap-3 hover:bg-[#1a1f27] text-left"
+              >
+                <span className="text-[10px] font-bold text-[#4a5568] w-10 text-right">#{p.adp || '—'}</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${posColor(p.position)}`}>
+                  {p.position}
+                </span>
+                <span className="flex-1 text-sm text-white truncate">{p.name}</span>
+                <span className="text-xs text-[#8a95a8] w-10 text-right">{p.team || 'FA'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Full draft board: teams × rounds */}
+      <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-[#2a3040] flex items-center justify-between">
+          <h2 className="font-semibold text-white text-sm">Draft Board</h2>
+          <div className="text-[10px] text-[#4a5568] uppercase tracking-wider">
+            Snake · Rounds 1-4 get 120s · 5-{ROUNDS} get 60s
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-[10px]">
+            <thead>
+              <tr className="border-b border-[#2a3040]">
+                <th className="px-2 py-2 text-left text-[#8a95a8] sticky left-0 bg-[#111418] z-10">Round</th>
+                {teamsBySlot.map(t => (
+                  <th key={t.rosterId} className="px-2 py-2 text-left text-[#8a95a8] truncate max-w-[120px]">
+                    {draftPositions[t.rosterId]}. {t.teamName}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: ROUNDS }, (_, i) => i + 1).map(round => (
+                <tr key={round} className="border-b border-[#2a3040]">
+                  <td className="px-2 py-2 font-bold text-[#8a95a8] sticky left-0 bg-[#111418] z-10">R{round}</td>
+                  {teamsBySlot.map(team => {
+                    const slot = draftPositions[team.rosterId];
+                    const pick = pickByCell[`${round}_${slot}`];
+                    const isOnTheClock =
+                      currentSlot && currentSlot.round === round && currentSlot.slot === slot;
+                    if (pick) {
+                      return (
+                        <td key={team.rosterId} className={`px-2 py-1.5 align-top ${posColor(pick.position)} border-l border-[#2a3040]`}>
+                          <div className="text-[10px] font-semibold text-white truncate max-w-[120px]">
+                            {pick.playerName}
+                          </div>
+                          <div className="text-[9px] opacity-80">{pick.position}{pick.nflTeam ? ` · ${pick.nflTeam}` : ''}</div>
+                        </td>
+                      );
+                    }
+                    return (
+                      <td
+                        key={team.rosterId}
+                        className={`px-2 py-1.5 border-l border-[#2a3040] ${
+                          isOnTheClock ? 'bg-[#00e5a0]/15 animate-pulse' : ''
+                        }`}
+                      >
+                        <span className="text-[#4a5568]">—</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

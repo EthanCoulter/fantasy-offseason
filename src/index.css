@@ -8,3 +8,9 @@ body { background: #0a0c10; color: #e8edf5; font-family: 'DM Sans', sans-serif; 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: #111418; }
 ::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 3px; }
+
+@keyframes fadeInUp {
+  0%   { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.animate-fade-in { animation: fadeInUp 420ms ease-out both; }

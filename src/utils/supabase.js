@@ -14,4 +14,24 @@ export const TABLES = {
   teamAssets: 'team_assets',
   trades: 'trades',
   mockDrafts: 'mock_drafts',
+  draftState: 'draft_state',
 };
+
+// One-time setup for the draft table (run in Supabase SQL editor):
+//
+//   CREATE TABLE IF NOT EXISTS draft_state (
+//     id                     INT PRIMARY KEY DEFAULT 1,
+//     is_active              BOOLEAN DEFAULT FALSE,
+//     is_trial               BOOLEAN DEFAULT FALSE,
+//     current_pick_start_time TIMESTAMPTZ,
+//     picks                  JSONB DEFAULT '[]'::jsonb,
+//     started_at             TIMESTAMPTZ,
+//     ended_at               TIMESTAMPTZ,
+//     updated_at             TIMESTAMPTZ DEFAULT NOW(),
+//     CONSTRAINT draft_state_singleton CHECK (id = 1)
+//   );
+//   INSERT INTO draft_state (id) VALUES (1) ON CONFLICT DO NOTHING;
+//   ALTER PUBLICATION supabase_realtime ADD TABLE draft_state;
+//   ALTER TABLE draft_state ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "draft_state read"  ON draft_state FOR SELECT USING (true);
+//   CREATE POLICY "draft_state write" ON draft_state FOR UPDATE USING (true);

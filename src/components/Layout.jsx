@@ -7,8 +7,10 @@ import LeaguePage from '../pages/LeaguePage';
 import CommissionerPage from '../pages/CommissionerPage';
 import DraftBoardPage from '../pages/DraftBoardPage';
 import MockDraftPage from '../pages/MockDraftPage';
+import DraftRoomPage from '../pages/DraftRoomPage';
+import DraftPickPage from '../pages/DraftPickPage';
 
-const NAV_MANAGER = [
+const NAV_MANAGER_BASE = [
   { id: 'team', label: 'My Team', icon: '🏟️' },
   { id: 'keepers', label: 'Keepers', icon: '⭐' },
   { id: 'trades', label: 'Trades', icon: '🔄' },
@@ -19,18 +21,34 @@ const NAV_MANAGER = [
 
 const NAV_COMMISSIONER = [
   { id: 'commissioner', label: 'Commissioner', icon: '👑' },
+  { id: 'draftroom', label: 'Draft Room', icon: '🏈' },
   { id: 'draftboard', label: 'Draft Board', icon: '📊' },
   { id: 'league', label: 'League', icon: '📋' },
   { id: 'trades', label: 'Trades', icon: '🔄' },
 ];
 
+// Manager draft-pick tab is only surfaced while the draft is live.
+const DRAFT_PICK_NAV_ITEM = { id: 'draftpick', label: 'Make Pick', icon: '🏈' };
+
 export default function Layout() {
-  const { currentUser, logout, trades, teams } = useStore();
+  const { currentUser, logout, trades, teams, draftState, draftOrder } = useStore();
   const [activePage, setActivePage] = useState(currentUser?.isCommissioner ? 'commissioner' : 'team');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isCommissioner = currentUser?.isCommissioner;
-  const navItems = isCommissioner ? NAV_COMMISSIONER : NAV_MANAGER;
+  const draftLive = !!draftState?.isActive;
+
+  // Inject "Make Pick" between Trades and Draft Board while the draft is live.
+  const navItems = isCommissioner
+    ? NAV_COMMISSIONER
+    : draftLive
+      ? [...NAV_MANAGER_BASE.slice(0, 3), DRAFT_PICK_NAV_ITEM, ...NAV_MANAGER_BASE.slice(3)]
+      : NAV_MANAGER_BASE;
+
+  // On-the-clock badge for the manager pick tab
+  const picksMade = (draftState?.picks || []).length;
+  const onTheClockRoster = draftOrder?.[picksMade]?.currentRosterId;
+  const isMyTurn = draftLive && onTheClockRoster === currentUser?.rosterId;
 
   const myTeam = !isCommissioner ? teams.find(t => t.rosterId === currentUser?.rosterId) : null;
   const pendingForMe = trades.filter(t => t.toRosterId === currentUser?.rosterId && t.status === 'pending').length;
@@ -45,6 +63,8 @@ export default function Layout() {
       case 'commissioner': return <CommissionerPage />;
       case 'draftboard': return <DraftBoardPage />;
       case 'mockdraft': return <MockDraftPage />;
+      case 'draftroom': return <DraftRoomPage />;
+      case 'draftpick': return <DraftPickPage />;
       default: return <MyTeamPage />;
     }
   };
@@ -93,6 +113,8 @@ export default function Layout() {
             const badge = item.id === 'trades'
               ? (isCommissioner ? pendingAll : pendingForMe)
               : 0;
+            const showLive = (item.id === 'draftroom' || item.id === 'draftpick') && draftLive;
+            const showOnClock = item.id === 'draftpick' && isMyTurn;
             return (
               <button
                 key={item.id}
@@ -100,11 +122,23 @@ export default function Layout() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${
                   activePage === item.id
                     ? 'bg-[#00e5a0]/10 text-[#00e5a0] border border-[#00e5a0]/20'
-                    : 'text-[#8a95a8] hover:text-white hover:bg-[#1a1f27]'
+                    : showOnClock
+                      ? 'bg-yellow-400/10 text-yellow-400 border border-yellow-400/30 animate-pulse'
+                      : 'text-[#8a95a8] hover:text-white hover:bg-[#1a1f27]'
                 }`}
               >
                 <span>{item.icon}</span>
                 <span className="flex-1">{item.label}</span>
+                {showLive && !showOnClock && (
+                  <span className="text-[9px] font-bold text-[#00e5a0] bg-[#00e5a0]/15 px-1.5 py-0.5 rounded-full">
+                    LIVE
+                  </span>
+                )}
+                {showOnClock && (
+                  <span className="text-[9px] font-bold text-black bg-yellow-400 px-1.5 py-0.5 rounded-full">
+                    CLOCK
+                  </span>
+                )}
                 {badge > 0 && (
                   <span className="w-5 h-5 bg-yellow-400 text-black text-[10px] font-bold rounded-full flex items-center justify-center">
                     {badge}

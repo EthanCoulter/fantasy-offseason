@@ -288,6 +288,53 @@ const saveUser = (u) => {
   } catch {}
 };
 
+// Seconds on the clock per round. Rounds 1-4 get 120s; rounds 5+ get 60s.
+export function clockSecondsForRound(round) {
+  return round <= 4 ? 120 : 60;
+}
+
+// Expand current-year picks out of teamAssets into a snake-ordered draft
+// board. Each entry: { pickIndex, round, slot, originalRosterId, currentRosterId }.
+// Only picks with a commissioner-assigned slot (pick.position != null) are
+// included — slotless picks are skipped so the draft doesn't try to run
+// them before the commissioner finishes assigning positions.
+export function computeDraftOrder(teams, teamAssets, draftPositions) {
+  const currentYear = YEARS[0];
+  const picksFlat = [];
+  Object.values(teamAssets || {}).forEach(ta => {
+    (ta?.picks || []).forEach(p => {
+      if (p.year === currentYear && p.position != null) picksFlat.push(p);
+    });
+  });
+  const numSlots = teams.length || 12;
+  const order = [];
+  for (let round = 1; round <= ROUNDS; round++) {
+    const slotsInRound = [];
+    for (let slot = 1; slot <= numSlots; slot++) {
+      const pick = picksFlat.find(p => p.round === round && p.position === slot);
+      if (!pick) continue;
+      slotsInRound.push({
+        round,
+        slot,
+        originalRosterId: pick.originalRosterId,
+        currentRosterId: pick.currentRosterId,
+      });
+    }
+    if (round % 2 === 0) slotsInRound.reverse();
+    slotsInRound.forEach(s => order.push({ ...s, pickIndex: order.length }));
+  }
+  return order;
+}
+
+const EMPTY_DRAFT_STATE = {
+  isActive: false,
+  isTrial: false,
+  currentPickStartTime: null,
+  picks: [], // [{ pickIndex, round, slot, rosterId, playerId, timestamp, wasAuto }]
+  startedAt: null,
+  endedAt: null,
+};
+
 const useStore = create((set, get) => ({
   teams: [],
   playerDB: {},
@@ -303,6 +350,8 @@ const useStore = create((set, get) => ({
   trades: [],
   mockDrafts: {},
   teamAssets: {},
+  draftState: EMPTY_DRAFT_STATE,
+  draftOrder: [],
 
   setLeagueData: (teams, playerDB, tradedPicks) => {
     set({ teams, playerDB, tradedPicks: tradedPicks || [], leagueLoaded: true });
@@ -324,17 +373,19 @@ const useStore = create((set, get) => ({
     });
 
     const teamAssets = computeTeamAssets(teams, draftPositions, mergedKeepers, playerDB, ownership);
-    set({ bonusPlayers, teamAssets });
+    const draftOrder = computeDraftOrder(teams, teamAssets, draftPositions);
+    set({ bonusPlayers, teamAssets, draftOrder });
   },
 
   hydrateFromSupabase: async () => {
     try {
-      const [r, k, sb, tr, md] = await Promise.all([
+      const [r, k, sb, tr, md, ds] = await Promise.all([
         supabase.from(TABLES.rankings).select('*'),
         supabase.from(TABLES.keepers).select('*'),
         supabase.from(TABLES.slotsBurned).select('*'),
         supabase.from(TABLES.trades).select('*').order('created_at', { ascending: false }),
         supabase.from(TABLES.mockDrafts).select('*'),
+        supabase.from(TABLES.draftState).select('*').eq('id', 1).maybeSingle(),
       ]);
 
       const draftPositions = {};
@@ -372,7 +423,20 @@ const useStore = create((set, get) => ({
         };
       });
 
-      set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, supabaseLoaded: true });
+      const draftState = ds?.data
+        ? {
+            isActive: !!ds.data.is_active,
+            isTrial: !!ds.data.is_trial,
+            currentPickStartTime: ds.data.current_pick_start_time
+              ? new Date(ds.data.current_pick_start_time).getTime()
+              : null,
+            picks: ds.data.picks || [],
+            startedAt: ds.data.started_at ? new Date(ds.data.started_at).getTime() : null,
+            endedAt: ds.data.ended_at ? new Date(ds.data.ended_at).getTime() : null,
+          }
+        : EMPTY_DRAFT_STATE;
+
+      set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, draftState, supabaseLoaded: true });
       get().rebuildAssets();
     } catch (e) {
       console.error('Supabase hydration failed:', e);
@@ -388,6 +452,7 @@ const useStore = create((set, get) => ({
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.slotsBurned }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.trades }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.mockDrafts }, () => get().hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.draftState }, () => get().hydrateFromSupabase())
       .subscribe();
     return () => supabase.removeChannel(channel);
   },
@@ -663,6 +728,153 @@ const useStore = create((set, get) => ({
 
   getTeam: (rosterId) => get().teams.find(t => t.rosterId === rosterId),
   getAssets: (rosterId) => get().teamAssets[rosterId] || { players: [], picks: [] },
+
+  // ---------- DRAFT ----------
+
+  _persistDraftState: async (patch) => {
+    const next = { ...get().draftState, ...patch };
+    set({ draftState: next });
+    const dbRow = {
+      id: 1,
+      is_active: next.isActive,
+      is_trial: next.isTrial,
+      current_pick_start_time: next.currentPickStartTime
+        ? new Date(next.currentPickStartTime).toISOString()
+        : null,
+      picks: next.picks || [],
+      started_at: next.startedAt ? new Date(next.startedAt).toISOString() : null,
+      ended_at: next.endedAt ? new Date(next.endedAt).toISOString() : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from(TABLES.draftState).upsert(dbRow);
+    if (error) console.error('draft_state upsert failed:', error);
+  },
+
+  // Commissioner toggles. `isActive` arms the draft and exposes the manager
+  // pick tab. `isTrial` marks every pick as non-committal so the simulation
+  // can be wiped before the real draft.
+  setDraftMode: async (isActive, isTrial) => {
+    const patch = { isActive: !!isActive, isTrial: !!isTrial };
+    if (isActive && !get().draftState.startedAt) {
+      patch.startedAt = Date.now();
+      patch.currentPickStartTime = Date.now();
+      patch.endedAt = null;
+    }
+    if (!isActive) {
+      patch.currentPickStartTime = null;
+    }
+    await get()._persistDraftState(patch);
+  },
+
+  // Kick the clock fresh for the current pick (used on undo / resume).
+  resetPickClock: async () => {
+    await get()._persistDraftState({ currentPickStartTime: Date.now() });
+  },
+
+  // Who is on the clock right now, derived from picks.length.
+  getCurrentPickSlot: () => {
+    const { draftOrder, draftState } = get();
+    const idx = (draftState.picks || []).length;
+    return draftOrder[idx] || null;
+  },
+
+  makeDraftPick: async ({ rosterId, playerId, wasAuto = false }) => {
+    const { draftOrder, draftState, playerDB } = get();
+    const idx = (draftState.picks || []).length;
+    const slot = draftOrder[idx];
+    if (!slot) return { success: false, errors: ['Draft is over'] };
+    if (slot.currentRosterId !== rosterId) {
+      return { success: false, errors: ['It is not your turn to pick'] };
+    }
+    const alreadyPicked = new Set((draftState.picks || []).map(p => p.playerId));
+    if (alreadyPicked.has(playerId)) {
+      return { success: false, errors: ['Player already drafted'] };
+    }
+    const p = playerDB[playerId];
+    if (!p) return { success: false, errors: ['Unknown player'] };
+
+    const pickEntry = {
+      pickIndex: idx,
+      round: slot.round,
+      slot: slot.slot,
+      rosterId,
+      playerId,
+      playerName: p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+      position: p.position,
+      nflTeam: p.team || null,
+      timestamp: Date.now(),
+      wasAuto: !!wasAuto,
+    };
+    const nextPicks = [...(draftState.picks || []), pickEntry];
+    const isDone = nextPicks.length >= draftOrder.length;
+    await get()._persistDraftState({
+      picks: nextPicks,
+      currentPickStartTime: isDone ? null : Date.now(),
+      endedAt: isDone ? Date.now() : null,
+      isActive: isDone ? false : true,
+    });
+    return { success: true, pick: pickEntry, isDone };
+  },
+
+  // Best Player Available — picks the top-ADP undrafted, unkept player.
+  autoPickBPA: async () => {
+    const { draftOrder, draftState, playerDB, keepers } = get();
+    const idx = (draftState.picks || []).length;
+    const slot = draftOrder[idx];
+    if (!slot) return { success: false, errors: ['Draft is over'] };
+    const takenIds = new Set([
+      ...(draftState.picks || []).map(p => p.playerId),
+      ...Object.values(keepers).flat(),
+    ]);
+    const candidates = Object.entries(playerDB || {})
+      .filter(([id, p]) =>
+        p &&
+        p.position &&
+        p.status !== 'Retired' &&
+        !takenIds.has(id) &&
+        p.search_rank &&
+        p.search_rank < 9999
+      )
+      .sort((a, b) => (a[1].search_rank || 99999) - (b[1].search_rank || 99999));
+    const best = candidates[0];
+    if (!best) return { success: false, errors: ['No available players found'] };
+    return get().makeDraftPick({
+      rosterId: slot.currentRosterId,
+      playerId: best[0],
+      wasAuto: true,
+    });
+  },
+
+  undoLastDraftPick: async () => {
+    const { draftState } = get();
+    const picks = draftState.picks || [];
+    if (picks.length === 0) return;
+    const nextPicks = picks.slice(0, -1);
+    await get()._persistDraftState({
+      picks: nextPicks,
+      currentPickStartTime: Date.now(),
+      endedAt: null,
+      isActive: true,
+    });
+  },
+
+  // Wipe the entire draft log. Commissioner-only; intended for trial mode
+  // resets, but also the "start over" button on the real draft.
+  resetDraft: async () => {
+    await get()._persistDraftState({
+      ...EMPTY_DRAFT_STATE,
+    });
+  },
+
+  // End draft — marks complete, stops the clock. Does NOT wipe picks (the
+  // log is the record). For trial mode, pair this with resetDraft.
+  endDraft: async () => {
+    await get()._persistDraftState({
+      isActive: false,
+      endedAt: Date.now(),
+      currentPickStartTime: null,
+    });
+  },
 
   resetAll: async () => {
     await Promise.all([
