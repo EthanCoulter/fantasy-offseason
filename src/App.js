@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import useStore, { LEAGUE_ID } from './store';
-import { fetchAllLeagueData, fetchPlayerDB } from './utils/sleeper';
+import { fetchAllLeagueData, fetchPlayerDB, fetchTradedPicks } from './utils/sleeper';
 import LoginPage from './pages/LoginPage';
 import Layout from './components/Layout';
 
@@ -35,7 +35,7 @@ function ErrorScreen({ error, onRetry }) {
 }
 
 export default function App() {
-  const { currentUser, setLeagueData, leagueLoaded } = useStore();
+  const { currentUser, setLeagueData, leagueLoaded, hydrateFromSupabase, subscribeToSupabase } = useStore();
   const [loadState, setLoadState] = useState('loading');
   const [loadMsg, setLoadMsg] = useState('Connecting to Sleeper...');
   const [error, setError] = useState('');
@@ -45,10 +45,17 @@ export default function App() {
     setError('');
     try {
       setLoadMsg('Connecting to Sleeper...');
-      const { teams } = await fetchAllLeagueData(LEAGUE_ID);
+      const [{ teams }, tradedPicks] = await Promise.all([
+        fetchAllLeagueData(LEAGUE_ID),
+        fetchTradedPicks(LEAGUE_ID).catch(() => []),
+      ]);
       setLoadMsg('Loading player database (may take a moment)...');
       const playerDB = await fetchPlayerDB();
-      setLeagueData(teams, playerDB);
+      setLeagueData(teams, playerDB, tradedPicks);
+
+      setLoadMsg('Syncing league state...');
+      await hydrateFromSupabase();
+
       setLoadState('done');
     } catch (e) {
       setError(e.message || 'Unknown error');
@@ -61,6 +68,13 @@ export default function App() {
     loadData();
     // eslint-disable-next-line
   }, []);
+
+  useEffect(() => {
+    if (loadState !== 'done') return;
+    const unsub = subscribeToSupabase();
+    return unsub;
+    // eslint-disable-next-line
+  }, [loadState]);
 
   if (loadState === 'loading') return <LoadingScreen message={loadMsg} />;
   if (loadState === 'error') return <ErrorScreen error={error} onRetry={loadData} />;

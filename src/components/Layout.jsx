@@ -6,12 +6,14 @@ import TradePage from '../pages/TradePage';
 import LeaguePage from '../pages/LeaguePage';
 import CommissionerPage from '../pages/CommissionerPage';
 import DraftBoardPage from '../pages/DraftBoardPage';
+import MockDraftPage from '../pages/MockDraftPage';
 
 const NAV_MANAGER = [
   { id: 'team', label: 'My Team', icon: '🏟️' },
   { id: 'keepers', label: 'Keepers', icon: '⭐' },
   { id: 'trades', label: 'Trades', icon: '🔄' },
   { id: 'draftboard', label: 'Draft Board', icon: '📊' },
+  { id: 'mockdraft', label: 'Mock Draft', icon: '🎯' },
   { id: 'league', label: 'League', icon: '📋' },
 ];
 
@@ -42,6 +44,7 @@ export default function Layout() {
       case 'league': return <LeaguePage />;
       case 'commissioner': return <CommissionerPage />;
       case 'draftboard': return <DraftBoardPage />;
+      case 'mockdraft': return <MockDraftPage />;
       default: return <MyTeamPage />;
     }
   };

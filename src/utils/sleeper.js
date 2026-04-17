@@ -45,3 +45,16 @@ export async function fetchPlayerDB() {
   try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
   return data;
 }
+
+// Fetches traded picks from Sleeper for a league.
+// Returns an array of { season, round, originalRosterId, currentRosterId, previousRosterId }
+export async function fetchTradedPicks(leagueId) {
+  const data = await sleeperGet(`/league/${leagueId}/traded_picks`);
+  return (data || []).map(p => ({
+    season: String(p.season),
+    round: p.round,
+    originalRosterId: p.roster_id,
+    currentRosterId: p.owner_id,
+    previousRosterId: p.previous_owner_id,
+  }));
+}
