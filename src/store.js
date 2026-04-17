@@ -4,7 +4,7 @@ import { supabase, TABLES } from './utils/supabase';
 export const LEAGUE_ID = '1250556742954135552';
 export const DISCORD_TRADE_WEBHOOK =
   'https://discord.com/api/webhooks/1494742521149132941/nEYQX-UdHNjFUBxoqixYigP66JhvxUymZTdjORxNqWsI0Lrt9qyfEm9f2TSh4voBuafQ';
-export const ROUNDS = 8;
+export const ROUNDS = 11;
 export const YEARS = [2026, 2027];
 export const BASE_OFFENSE_KEEPERS = 5;
 export const BASE_DEFENSE_KEEPERS = 1;
