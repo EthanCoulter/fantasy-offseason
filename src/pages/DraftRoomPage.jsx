@@ -57,7 +57,10 @@ export default function DraftRoomPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Fire sound + animation when a new pick lands
+  // Fire sound + trigger big-phase animation when a new pick lands.
+  // NOTE: the 5s→small transition lives in a separate effect so that any
+  // re-render during the big phase (realtime updates, teams ref churn) can't
+  // wipe the pending timer and strand the overlay.
   useEffect(() => {
     const picks = draftState.picks || [];
     if (picks.length === 0) { lastPickIdxRef.current = -1; return; }
@@ -81,13 +84,22 @@ export default function DraftRoomPage() {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
-    // After 5s, shrink to the inline card. It stays there until the next pick
-    // replaces it — no auto-dismiss, so the last pick is always visible.
-    const t = setTimeout(() => {
-      setFlash(f => (f && f.pickIndex === p.pickIndex ? { ...f, phase: 'small' } : f));
-    }, 5000);
-    return () => clearTimeout(t);
   }, [draftState.picks, teams]);
+
+  // Shrink the big overlay to the inline card after 5s. Keyed on the pick
+  // index so only a genuinely new big-phase pick resets the timer.
+  const flashBigPickId = flash && flash.phase === 'big' ? flash.pickIndex : null;
+  useEffect(() => {
+    if (flashBigPickId == null) return;
+    const to = setTimeout(() => {
+      setFlash(f => (f && f.pickIndex === flashBigPickId ? { ...f, phase: 'small' } : f));
+    }, 5000);
+    return () => clearTimeout(to);
+  }, [flashBigPickId]);
+
+  const dismissFlash = () => {
+    setFlash(f => (f && f.phase === 'big' ? { ...f, phase: 'small' } : f));
+  };
 
   const picksCount = (draftState.picks || []).length;
   const totalPicks = draftOrder.length;
@@ -334,9 +346,24 @@ export default function DraftRoomPage() {
         </div>
       )}
 
-      {/* Big full-screen pick overlay — 5s slam, then shrinks to the card below */}
+      {/* Big full-screen pick overlay — 5s slam, then shrinks to the card below.
+          Tap anywhere (or the X) to dismiss early — protects against any stuck-
+          overlay scenarios on mobile. */}
       {flash && flash.phase === 'big' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in cursor-pointer"
+          onClick={dismissFlash}
+          role="button"
+          aria-label="Dismiss pick animation"
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); dismissFlash(); }}
+            className="absolute top-4 right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/30 text-white text-2xl font-bold flex items-center justify-center backdrop-blur-sm"
+            aria-label="Close"
+          >
+            ×
+          </button>
           <div className="animate-pick-slam w-full max-w-5xl mx-4">
             <div className="relative overflow-hidden rounded-3xl border-2 border-[#00e5a0]/50 bg-gradient-to-br from-[#0a0c10] via-[#111a2a] to-[#0a0c10] animate-pick-pulse">
               {/* Shine sweep */}

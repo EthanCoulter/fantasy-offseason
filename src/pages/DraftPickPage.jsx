@@ -60,6 +60,8 @@ export default function DraftPickPage() {
 
   // Sound + flash animation fire when a new pick lands in the log.
   // Sound is gated to rounds 1-3; animation shows for every pick.
+  // NOTE: the 5s→small transition lives in a separate effect below so that
+  // any re-render during the big phase can't strand the overlay.
   useEffect(() => {
     if (picks.length === 0) {
       lastPickIdxRef.current = -1;
@@ -86,11 +88,20 @@ export default function DraftPickPage() {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
+  }, [picks, teams]);
+
+  const flashBigPickId = flash && flash.phase === 'big' ? flash.pickIndex : null;
+  useEffect(() => {
+    if (flashBigPickId == null) return;
     const to = setTimeout(() => {
-      setFlash(f => (f && f.pickIndex === p.pickIndex ? { ...f, phase: 'small' } : f));
+      setFlash(f => (f && f.pickIndex === flashBigPickId ? { ...f, phase: 'small' } : f));
     }, 5000);
     return () => clearTimeout(to);
-  }, [picks, teams]);
+  }, [flashBigPickId]);
+
+  const dismissFlash = () => {
+    setFlash(f => (f && f.phase === 'big' ? { ...f, phase: 'small' } : f));
+  };
 
   const myTeam = teams.find(t => t.rosterId === myRosterId);
   const originalTeam = currentSlot && currentSlot.originalRosterId !== currentSlot.currentRosterId
@@ -159,9 +170,23 @@ export default function DraftPickPage() {
     <div className="space-y-6">
       <audio ref={audioRef} src={DRAFT_SOUND_URL} preload="auto" />
 
-      {/* Big full-screen pick overlay — 5s, then shrinks to inline card */}
+      {/* Big full-screen pick overlay — 5s, then shrinks to inline card.
+          Tap anywhere (or the X) to dismiss early. */}
       {flash && flash.phase === 'big' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in cursor-pointer"
+          onClick={dismissFlash}
+          role="button"
+          aria-label="Dismiss pick animation"
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); dismissFlash(); }}
+            className="absolute top-4 right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/30 text-white text-2xl font-bold flex items-center justify-center backdrop-blur-sm"
+            aria-label="Close"
+          >
+            ×
+          </button>
           <div className="animate-pick-slam w-full max-w-5xl mx-4">
             <div className="relative overflow-hidden rounded-3xl border-2 border-[#00e5a0]/50 bg-gradient-to-br from-[#0a0c10] via-[#111a2a] to-[#0a0c10] animate-pick-pulse">
               <div className="pointer-events-none absolute inset-0 overflow-hidden">
