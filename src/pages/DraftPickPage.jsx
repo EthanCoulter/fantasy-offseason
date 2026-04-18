@@ -18,6 +18,7 @@ const POS_COLORS = {
 const posColor = (p) => POS_COLORS[p] || 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040]';
 
 const DRAFT_SOUND_URL = '/draft-pick.mp3';
+const SOUND_ROUNDS = new Set([1, 2, 3]);
 
 export default function DraftPickPage() {
   const {
@@ -38,7 +39,9 @@ export default function DraftPickPage() {
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
   const audioRef = useRef(null);
-  const prevOnClockRef = useRef(false);
+  const lastPickIdxRef = useRef(-1);
+  // flash has two phases: 'big' (5s full-screen slam) → 'small' (inline card)
+  const [flash, setFlash] = useState(null);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -55,14 +58,39 @@ export default function DraftPickPage() {
   const remaining = Math.max(0, clockSecs - elapsed);
   const timerDanger = remaining <= 15 && remaining > 0;
 
-  // Sound when I go on-the-clock
+  // Sound + flash animation fire when a new pick lands in the log.
+  // Sound is gated to rounds 1-3; animation shows for every pick.
   useEffect(() => {
-    if (isOnTheClock && !prevOnClockRef.current && audioRef.current) {
+    if (picks.length === 0) {
+      lastPickIdxRef.current = -1;
+      return;
+    }
+    const lastIdx = picks.length - 1;
+    if (lastIdx <= lastPickIdxRef.current) return;
+    lastPickIdxRef.current = lastIdx;
+    const p = picks[lastIdx];
+    if (!p) return;
+    const pickerTeam = teams.find(t => t.rosterId === p.rosterId);
+    setFlash({
+      phase: 'big',
+      pickIndex: p.pickIndex,
+      round: p.round,
+      slot: p.slot,
+      team: pickerTeam?.teamName || 'Unknown',
+      player: p.playerName,
+      playerId: p.playerId,
+      pos: p.position,
+      nflTeam: p.nflTeam,
+    });
+    if (audioRef.current && SOUND_ROUNDS.has(p.round)) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
-    prevOnClockRef.current = isOnTheClock;
-  }, [isOnTheClock]);
+    const to = setTimeout(() => {
+      setFlash(f => (f && f.pickIndex === p.pickIndex ? { ...f, phase: 'small' } : f));
+    }, 5000);
+    return () => clearTimeout(to);
+  }, [picks, teams]);
 
   const myTeam = teams.find(t => t.rosterId === myRosterId);
   const originalTeam = currentSlot && currentSlot.originalRosterId !== currentSlot.currentRosterId
@@ -130,6 +158,84 @@ export default function DraftPickPage() {
   return (
     <div className="space-y-6">
       <audio ref={audioRef} src={DRAFT_SOUND_URL} preload="auto" />
+
+      {/* Big full-screen pick overlay — 5s, then shrinks to inline card */}
+      {flash && flash.phase === 'big' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in">
+          <div className="animate-pick-slam w-full max-w-5xl mx-4">
+            <div className="relative overflow-hidden rounded-3xl border-2 border-[#00e5a0]/50 bg-gradient-to-br from-[#0a0c10] via-[#111a2a] to-[#0a0c10] animate-pick-pulse">
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pick-shine" />
+              </div>
+              <div className="relative flex flex-col md:flex-row items-center gap-6 p-8 md:p-12">
+                <div className="shrink-0 relative">
+                  <div className="w-48 h-48 md:w-64 md:h-64 rounded-full overflow-hidden border-4 border-[#00e5a0]/60 bg-[#1a1f27] shadow-2xl shadow-[#00e5a0]/30">
+                    {flash.playerId ? (
+                      <img
+                        src={`https://sleepercdn.com/content/nfl/players/${flash.playerId}.jpg`}
+                        alt={flash.player}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-6xl">🏈</div>
+                    )}
+                  </div>
+                  <div className={`absolute -bottom-2 -right-2 px-3 py-1 rounded-lg border-2 font-black text-sm ${posColor(flash.pos)}`}>
+                    {flash.pos}
+                  </div>
+                </div>
+                <div className="flex-1 text-center md:text-left">
+                  <div className="text-sm uppercase tracking-[0.3em] text-[#00e5a0] font-bold mb-1">
+                    🚨 THE PICK IS IN · R{flash.round} · Pick {flash.slot} (Overall #{flash.pickIndex + 1})
+                  </div>
+                  <div
+                    className="text-3xl md:text-4xl font-black text-[#8a95a8] mb-2"
+                    style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.03em' }}
+                  >
+                    {flash.team}
+                  </div>
+                  <div
+                    className="text-5xl md:text-7xl font-black text-white leading-tight"
+                    style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.02em' }}
+                  >
+                    {flash.player}
+                  </div>
+                  {flash.nflTeam && (
+                    <div className="mt-3 text-xl text-[#8a95a8] font-semibold">
+                      {flash.nflTeam}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline last-pick card */}
+      {flash && flash.phase === 'small' && (
+        <div className="bg-[#4da6ff]/10 border border-[#4da6ff]/40 rounded-2xl p-4 flex items-center gap-4 animate-fade-in">
+          {flash.playerId && (
+            <img
+              src={`https://sleepercdn.com/content/nfl/players/${flash.playerId}.jpg`}
+              alt={flash.player}
+              className="w-12 h-12 rounded-full object-cover border-2 border-[#4da6ff]/60 bg-[#1a1f27] shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-widest text-[#4da6ff]">Last pick · #{flash.pickIndex + 1}</div>
+            <div className="text-sm font-black text-white truncate" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>
+              {flash.team} selects {flash.player}
+            </div>
+            <div className="flex items-center gap-2 text-[10px] mt-0.5">
+              <span className={`px-1.5 py-0.5 rounded border font-semibold ${posColor(flash.pos)}`}>{flash.pos}</span>
+              {flash.nflTeam && <span className="text-[#8a95a8]">{flash.nflTeam}</span>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>

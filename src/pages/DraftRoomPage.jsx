@@ -18,8 +18,10 @@ const POS_COLORS = {
 };
 const posColor = (p) => POS_COLORS[p] || 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040]';
 
-// Replace /draft-pick.mp3 with whatever the user drops in /public later.
 const DRAFT_SOUND_URL = '/draft-pick.mp3';
+// Sound only plays for picks in these rounds — later rounds are quick-fire
+// and the alert would get annoying fast.
+const SOUND_ROUNDS = new Set([1, 2, 3]);
 
 export default function DraftRoomPage() {
   const {
@@ -45,7 +47,9 @@ export default function DraftRoomPage() {
   const [posFilter, setPosFilter] = useState('ALL');
   const lastPickIdxRef = useRef(-1);
   const audioRef = useRef(null);
-  const [flash, setFlash] = useState(null); // { pickIndex, team, player, pos }
+  // flash has two phases: 'big' = full-screen overlay (~5s), then 'small' =
+  // inline card that lives below the timer until the next pick lands.
+  const [flash, setFlash] = useState(null);
 
   // 1s ticker for clock readouts
   useEffect(() => {
@@ -63,17 +67,25 @@ export default function DraftRoomPage() {
     const p = picks[lastIdx];
     const team = teams.find(t => t.rosterId === p.rosterId);
     setFlash({
+      phase: 'big',
       pickIndex: p.pickIndex,
+      round: p.round,
+      slot: p.slot,
       team: team?.teamName || 'Unknown',
       player: p.playerName,
+      playerId: p.playerId,
       pos: p.position,
       nflTeam: p.nflTeam,
     });
-    if (audioRef.current) {
+    if (audioRef.current && SOUND_ROUNDS.has(p.round)) {
       audioRef.current.currentTime = 0;
       audioRef.current.play().catch(() => {});
     }
-    const t = setTimeout(() => setFlash(null), 4500);
+    // After 5s, shrink to the inline card. It stays there until the next pick
+    // replaces it — no auto-dismiss, so the last pick is always visible.
+    const t = setTimeout(() => {
+      setFlash(f => (f && f.pickIndex === p.pickIndex ? { ...f, phase: 'small' } : f));
+    }, 5000);
     return () => clearTimeout(t);
   }, [draftState.picks, teams]);
 
@@ -322,10 +334,76 @@ export default function DraftRoomPage() {
         </div>
       )}
 
-      {/* Flash animation — last pick */}
-      {flash && (
+      {/* Big full-screen pick overlay — 5s slam, then shrinks to the card below */}
+      {flash && flash.phase === 'big' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm animate-fade-in">
+          <div className="animate-pick-slam w-full max-w-5xl mx-4">
+            <div className="relative overflow-hidden rounded-3xl border-2 border-[#00e5a0]/50 bg-gradient-to-br from-[#0a0c10] via-[#111a2a] to-[#0a0c10] animate-pick-pulse">
+              {/* Shine sweep */}
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                <div className="absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pick-shine" />
+              </div>
+
+              <div className="relative flex flex-col md:flex-row items-center gap-6 p-8 md:p-12">
+                {/* Headshot */}
+                <div className="shrink-0 relative">
+                  <div className="w-48 h-48 md:w-64 md:h-64 rounded-full overflow-hidden border-4 border-[#00e5a0]/60 bg-[#1a1f27] shadow-2xl shadow-[#00e5a0]/30">
+                    {flash.playerId ? (
+                      <img
+                        src={`https://sleepercdn.com/content/nfl/players/${flash.playerId}.jpg`}
+                        alt={flash.player}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-6xl">🏈</div>
+                    )}
+                  </div>
+                  <div className={`absolute -bottom-2 -right-2 px-3 py-1 rounded-lg border-2 font-black text-sm ${posColor(flash.pos)}`}>
+                    {flash.pos}
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 text-center md:text-left">
+                  <div className="text-sm uppercase tracking-[0.3em] text-[#00e5a0] font-bold mb-1">
+                    🚨 THE PICK IS IN · R{flash.round} · Pick {flash.slot} (Overall #{flash.pickIndex + 1})
+                  </div>
+                  <div
+                    className="text-3xl md:text-4xl font-black text-[#8a95a8] mb-2"
+                    style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.03em' }}
+                  >
+                    {flash.team}
+                  </div>
+                  <div
+                    className="text-5xl md:text-7xl font-black text-white leading-tight"
+                    style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.02em' }}
+                  >
+                    {flash.player}
+                  </div>
+                  {flash.nflTeam && (
+                    <div className="mt-3 text-xl text-[#8a95a8] font-semibold">
+                      {flash.nflTeam}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline last-pick card — shows below timer after the big animation */}
+      {flash && flash.phase === 'small' && (
         <div className="bg-[#4da6ff]/10 border border-[#4da6ff]/40 rounded-2xl p-5 flex items-center gap-4 animate-fade-in">
-          <div className="text-4xl shrink-0">🚨</div>
+          {flash.playerId && (
+            <img
+              src={`https://sleepercdn.com/content/nfl/players/${flash.playerId}.jpg`}
+              alt={flash.player}
+              className="w-14 h-14 rounded-full object-cover border-2 border-[#4da6ff]/60 bg-[#1a1f27] shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+          )}
           <div className="flex-1">
             <div className="text-[10px] uppercase tracking-widest text-[#4da6ff]">Pick #{flash.pickIndex + 1}</div>
             <div className="text-lg font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>

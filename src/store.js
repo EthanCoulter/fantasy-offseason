@@ -2,8 +2,6 @@ import { create } from 'zustand';
 import { supabase, TABLES } from './utils/supabase';
 
 export const LEAGUE_ID = '1250556742954135552';
-export const DISCORD_TRADE_WEBHOOK =
-  'https://discord.com/api/webhooks/1494742521149132941/nEYQX-UdHNjFUBxoqixYigP66JhvxUymZTdjORxNqWsI0Lrt9qyfEm9f2TSh4voBuafQ';
 export const ROUNDS = 11;
 export const YEARS = [2026, 2027];
 export const BASE_OFFENSE_KEEPERS = 5;
@@ -153,34 +151,25 @@ export function deriveBonusPlayers(teams, trades) {
 }
 
 // Fire-and-forget Schefter-style Discord notification for an accepted trade.
-// Failures are swallowed — a down webhook should never block the trade itself.
+// The actual webhook URL is held server-side as a Vercel env var and POSTed
+// from /api/discord-trade — never exposed to the client bundle or git.
+// Failures are swallowed; a down webhook never blocks the trade itself.
 export async function notifyDiscordTrade(trade, teams) {
   try {
-    if (!trade || !teams || !DISCORD_TRADE_WEBHOOK) return;
+    if (!trade || !teams) return;
     const fromTeam = teams.find(t => t.rosterId === trade.fromRosterId);
     const toTeam = teams.find(t => t.rosterId === trade.toRosterId);
     const fromName = fromTeam?.teamName || fromTeam?.displayName || 'Unknown';
     const toName = toTeam?.teamName || toTeam?.displayName || 'Unknown';
-    const fmt = (assets) =>
-      (assets || [])
-        .map(a => (a.type === 'pick' ? a.label : `${a.name} (${a.position})`))
-        .join(', ') || '—';
 
-    const content = [
-      '@everyone',
-      '🚨🚨🚨 **NEW TRADE ALERT** 🚨🚨🚨',
-      '',
-      `**Sources:** The ${fromName} have traded **${fmt(trade.fromAssets)}** to the ${toName} in exchange for **${fmt(trade.toAssets)}**.`,
-      '',
-      `More details as they become available.`,
-    ].join('\n');
-
-    await fetch(DISCORD_TRADE_WEBHOOK, {
+    await fetch('/api/discord-trade', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content,
-        allowed_mentions: { parse: ['everyone'] },
+        fromTeam: fromName,
+        toTeam: toName,
+        fromAssets: trade.fromAssets,
+        toAssets: trade.toAssets,
       }),
     });
   } catch (e) {
