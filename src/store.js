@@ -282,11 +282,13 @@ export function clockSecondsForRound(round) {
   return round <= 4 ? 120 : 60;
 }
 
-// Expand current-year picks out of teamAssets into a snake-ordered draft
-// board. Each entry: { pickIndex, round, slot, originalRosterId, currentRosterId }.
-// Only picks with a commissioner-assigned slot (pick.position != null) are
-// included — slotless picks are skipped so the draft doesn't try to run
-// them before the commissioner finishes assigning positions.
+// Expand current-year picks out of teamAssets into a linear draft board.
+// Each entry: { pickIndex, round, slot, originalRosterId, currentRosterId }.
+// Linear (non-snake): slot 1 picks first every round, slot N picks last
+// every round. Only picks with a commissioner-assigned slot
+// (pick.position != null) are included — slotless picks are skipped so the
+// draft doesn't try to run them before the commissioner finishes assigning
+// positions.
 export function computeDraftOrder(teams, teamAssets, draftPositions) {
   const currentYear = YEARS[0];
   const picksFlat = [];
@@ -298,19 +300,17 @@ export function computeDraftOrder(teams, teamAssets, draftPositions) {
   const numSlots = teams.length || 12;
   const order = [];
   for (let round = 1; round <= ROUNDS; round++) {
-    const slotsInRound = [];
     for (let slot = 1; slot <= numSlots; slot++) {
       const pick = picksFlat.find(p => p.round === round && p.position === slot);
       if (!pick) continue;
-      slotsInRound.push({
+      order.push({
         round,
         slot,
         originalRosterId: pick.originalRosterId,
         currentRosterId: pick.currentRosterId,
+        pickIndex: order.length,
       });
     }
-    if (round % 2 === 0) slotsInRound.reverse();
-    slotsInRound.forEach(s => order.push({ ...s, pickIndex: order.length }));
   }
   return order;
 }

@@ -182,10 +182,10 @@ export default function DraftPickPage() {
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); dismissFlash(); }}
-            className="absolute top-4 right-4 z-10 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/30 text-white text-2xl font-bold flex items-center justify-center backdrop-blur-sm"
+            className="absolute top-4 right-4 z-20 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 active:bg-red-700 text-white text-sm font-bold flex items-center gap-2 shadow-lg shadow-red-500/40"
             aria-label="Close"
           >
-            ×
+            ✕ Close
           </button>
           <div className="animate-pick-slam w-full max-w-5xl mx-4">
             <div className="relative overflow-hidden rounded-3xl border-2 border-[#00e5a0]/50 bg-gradient-to-br from-[#0a0c10] via-[#111a2a] to-[#0a0c10] animate-pick-pulse">
@@ -232,6 +232,17 @@ export default function DraftPickPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="relative border-t border-white/10 px-6 py-4 flex items-center justify-between gap-3 bg-black/30">
+                <span className="text-xs text-[#8a95a8]">Auto-closes in 5 seconds</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); dismissFlash(); }}
+                  className="px-5 py-2.5 rounded-xl bg-[#00e5a0] hover:bg-[#00ffb3] active:bg-[#00cc8f] text-black text-sm font-bold shadow-lg shadow-[#00e5a0]/30"
+                >
+                  Dismiss →
+                </button>
               </div>
             </div>
           </div>
