@@ -552,12 +552,28 @@ export default function DraftRoomPage() {
                     const isOnTheClock =
                       currentSlot && currentSlot.round === round && currentSlot.slot === slot;
                     if (pick) {
+                      // Who actually made the pick. Usually the column's team,
+                      // but after a trade the drafter may differ — show the
+                      // true drafter so it's obvious who selected the player.
+                      const drafter = teams.find(t => t.rosterId === pick.rosterId);
                       return (
                         <td key={team.rosterId} className={`px-2 py-1.5 align-top ${posColor(pick.position)} border-l border-[#2a3040]`}>
-                          <div className="text-[10px] font-semibold text-white truncate max-w-[120px]">
+                          <div className="text-[10px] font-bold text-white truncate max-w-[120px]">
                             {pick.playerName}
                           </div>
-                          <div className="text-[9px] opacity-80">{pick.position}{pick.nflTeam ? ` · ${pick.nflTeam}` : ''}</div>
+                          <div className="text-[9px] opacity-80 truncate max-w-[120px]">
+                            {pick.position}{pick.nflTeam ? ` · ${pick.nflTeam}` : ''}
+                          </div>
+                          {drafter && (
+                            <div className="text-[9px] font-semibold text-[#00e5a0] truncate max-w-[120px] mt-0.5">
+                              by {drafter.teamName}
+                            </div>
+                          )}
+                          {drafter?.displayName && (
+                            <div className="text-[9px] text-[#8a95a8] truncate max-w-[120px]">
+                              {drafter.displayName}
+                            </div>
+                          )}
                         </td>
                       );
                     }

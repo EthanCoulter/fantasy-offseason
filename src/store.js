@@ -353,8 +353,33 @@ const EMPTY_DRAFT_STATE = {
   endedAt: null,
 };
 
+// For a real (non-trial) draft, drafted players are added to the picking
+// team's active roster so the rest of the app (Keepers list, LeaguePage,
+// CSV roster export) reflects what the team actually holds post-draft.
+// Trial-mode picks stay out — they're simulation-only.
+function applyDraftPicksToTeams(baseTeams, draftState) {
+  if (!draftState || draftState.isTrial || !(draftState.picks?.length)) return baseTeams;
+  const byRoster = new Map();
+  draftState.picks.forEach(p => {
+    if (!p?.rosterId || !p?.playerId) return;
+    if (!byRoster.has(p.rosterId)) byRoster.set(p.rosterId, []);
+    byRoster.get(p.rosterId).push(p.playerId);
+  });
+  return baseTeams.map(t => {
+    const extras = byRoster.get(t.rosterId);
+    if (!extras || extras.length === 0) return t;
+    const merged = new Set(t.players || []);
+    extras.forEach(id => merged.add(id));
+    return { ...t, players: Array.from(merged) };
+  });
+}
+
 const useStore = create((set, get) => ({
   teams: [],
+  // Sleeper-sourced raw roster snapshot. Never mutated after load; `teams`
+  // is derived from `_baseTeams` plus any in-app augmentation (currently
+  // just drafted players for non-trial drafts).
+  _baseTeams: [],
   playerDB: {},
   tradedPicks: [],
   leagueLoaded: false,
@@ -372,27 +397,38 @@ const useStore = create((set, get) => ({
   draftOrder: [],
 
   setLeagueData: (teams, playerDB, tradedPicks) => {
-    set({ teams, playerDB, tradedPicks: tradedPicks || [], leagueLoaded: true });
+    set({
+      _baseTeams: teams,
+      teams,
+      playerDB,
+      tradedPicks: tradedPicks || [],
+      leagueLoaded: true,
+    });
     get().rebuildAssets();
   },
 
   rebuildAssets: () => {
-    const { teams, playerDB, tradedPicks, draftPositions, keepers, trades } = get();
-    if (!teams.length) return;
-    const ownership = buildOwnership(teams, tradedPicks, trades);
-    const bonusPlayers = deriveBonusPlayers(teams, trades);
+    const state = get();
+    const baseTeams = state._baseTeams.length ? state._baseTeams : state.teams;
+    if (!baseTeams.length) return;
+    // Fold any drafted players into rosters up front so ownership, assets,
+    // and keepers UI all see the same post-draft team shapes.
+    const teams = applyDraftPicksToTeams(baseTeams, state.draftState);
+
+    const ownership = buildOwnership(teams, state.tradedPicks, state.trades);
+    const bonusPlayers = deriveBonusPlayers(teams, state.trades);
 
     // Auto-include bonus players in each roster's keepers list (they are locked).
-    const mergedKeepers = { ...keepers };
+    const mergedKeepers = { ...state.keepers };
     Object.entries(bonusPlayers).forEach(([rid, ids]) => {
       const current = new Set(mergedKeepers[rid] || []);
       (ids || []).forEach(id => current.add(id));
       mergedKeepers[rid] = Array.from(current);
     });
 
-    const teamAssets = computeTeamAssets(teams, draftPositions, mergedKeepers, playerDB, ownership);
-    const draftOrder = computeDraftOrder(teams, teamAssets, draftPositions);
-    set({ bonusPlayers, teamAssets, draftOrder });
+    const teamAssets = computeTeamAssets(teams, state.draftPositions, mergedKeepers, state.playerDB, ownership);
+    const draftOrder = computeDraftOrder(teams, teamAssets, state.draftPositions);
+    set({ teams, bonusPlayers, teamAssets, draftOrder });
   },
 
   hydrateFromSupabase: async () => {
@@ -752,6 +788,9 @@ const useStore = create((set, get) => ({
   _persistDraftState: async (patch) => {
     const next = { ...get().draftState, ...patch };
     set({ draftState: next });
+    // Picks / isTrial affect derived team rosters — refresh so drafted
+    // players appear on (or rewind off of) their team's active roster.
+    get().rebuildAssets();
     const dbRow = {
       id: 1,
       is_active: next.isActive,
