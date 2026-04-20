@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import useStore, { clockSecondsForRound, YEARS, ROUNDS } from '../store';
+import useStore, { clockSecondsForRound, YEARS, ROUNDS, testDiscordWebhook } from '../store';
 import { downloadCsv, buildDraftRecapCsv } from '../utils/csv';
 
 const POS_COLORS = {
@@ -172,6 +172,21 @@ export default function DraftRoomPage() {
     await setDraftMode(draftState.isActive, !draftState.isTrial);
   };
 
+  const handleTestWebhook = async () => {
+    const r = await testDiscordWebhook();
+    if (r.ok) {
+      alert('✅ Discord webhook is working — check the #trade-alerts channel.');
+    } else {
+      const msg = [
+        '❌ Discord webhook failed.',
+        r.status ? `HTTP ${r.status}` : null,
+        r.error,
+        r.detail,
+      ].filter(Boolean).join('\n\n');
+      alert(msg);
+    }
+  };
+
   const handleDownloadCsv = () => {
     const rows = buildDraftRecapCsv({ teams, draftState, draftOrder });
     if (rows.length <= 1) {
@@ -203,6 +218,9 @@ export default function DraftRoomPage() {
   (draftState.picks || []).forEach(p => {
     pickByCell[`${p.round}_${p.slot}`] = p;
   });
+  // Who actually owns the pick at (round, slot) right now — honors trades.
+  const orderByCell = {};
+  draftOrder.forEach(o => { orderByCell[`${o.round}_${o.slot}`] = o; });
 
   return (
     <div className="space-y-6">
@@ -257,6 +275,10 @@ export default function DraftRoomPage() {
             onClick={handleDownloadCsv}
             className="px-3 py-1.5 text-xs font-semibold bg-[#4da6ff]/20 text-[#4da6ff] border border-[#4da6ff]/40 rounded-xl hover:bg-[#4da6ff]/30 transition-colors"
           >⬇ Download CSV</button>
+          <button
+            onClick={handleTestWebhook}
+            className="px-3 py-1.5 text-xs font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/40 rounded-xl hover:bg-purple-500/25 transition-colors"
+          >🧪 Test Discord</button>
           <button
             onClick={() => setConfirmingReset(true)}
             className="px-3 py-1.5 text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/20 transition-colors"
@@ -539,14 +561,35 @@ export default function DraftRoomPage() {
                         </td>
                       );
                     }
+                    // No pick yet — show the manager's team name so the board
+                    // reads like a standard draft board. If the pick's been
+                    // traded, show the current owner (with a tiny "via" tag).
+                    const entry = orderByCell[`${round}_${slot}`];
+                    const currentOwner = entry
+                      ? teams.find(t => t.rosterId === entry.currentRosterId)
+                      : null;
+                    const owner = currentOwner || team;
+                    const tradedFrom = entry && entry.currentRosterId !== entry.originalRosterId
+                      ? teams.find(t => t.rosterId === entry.originalRosterId)
+                      : null;
                     return (
                       <td
                         key={team.rosterId}
-                        className={`px-2 py-1.5 border-l border-[#2a3040] ${
+                        className={`px-2 py-1.5 border-l border-[#2a3040] align-top ${
                           isOnTheClock ? 'bg-[#00e5a0]/15 animate-pulse' : ''
                         }`}
                       >
-                        <span className="text-[#4a5568]">—</span>
+                        <div className="text-[10px] font-semibold text-white truncate max-w-[120px]">
+                          {owner?.teamName || '—'}
+                        </div>
+                        {tradedFrom && (
+                          <div className="text-[9px] text-[#ff6b35] truncate max-w-[120px]">
+                            via {tradedFrom.teamName}
+                          </div>
+                        )}
+                        {isOnTheClock && (
+                          <div className="text-[9px] text-[#00e5a0] font-bold mt-0.5">ON THE CLOCK</div>
+                        )}
                       </td>
                     );
                   })}

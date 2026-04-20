@@ -156,13 +156,13 @@ export function deriveBonusPlayers(teams, trades) {
 // Failures are swallowed; a down webhook never blocks the trade itself.
 export async function notifyDiscordTrade(trade, teams) {
   try {
-    if (!trade || !teams) return;
+    if (!trade || !teams) return { ok: false, error: 'missing trade or teams' };
     const fromTeam = teams.find(t => t.rosterId === trade.fromRosterId);
     const toTeam = teams.find(t => t.rosterId === trade.toRosterId);
     const fromName = fromTeam?.teamName || fromTeam?.displayName || 'Unknown';
     const toName = toTeam?.teamName || toTeam?.displayName || 'Unknown';
 
-    await fetch('/api/discord-trade', {
+    const resp = await fetch('/api/discord-trade', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -172,8 +172,37 @@ export async function notifyDiscordTrade(trade, teams) {
         toAssets: trade.toAssets,
       }),
     });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.warn('Discord trade notification failed:', resp.status, data);
+      return { ok: false, status: resp.status, error: data.error, detail: data.detail };
+    }
+    return { ok: true };
   } catch (e) {
     console.warn('Discord trade notification failed:', e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+// Commissioner-facing sanity check — hits the serverless endpoint with a
+// test payload and returns what actually happened so the UI can show a
+// diagnostic message instead of silently failing.
+export async function testDiscordWebhook() {
+  try {
+    const resp = await fetch('/api/discord-trade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test: true }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      error: data.error,
+      detail: data.detail,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
   }
 }
 

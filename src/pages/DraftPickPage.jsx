@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import useStore, { clockSecondsForRound } from '../store';
+import useStore, { clockSecondsForRound, validateTrade } from '../store';
 
 const POS_COLORS = {
   QB: 'bg-red-500/15 text-red-400 border-red-500/30',
@@ -29,6 +29,10 @@ export default function DraftPickPage() {
     draftState,
     draftOrder,
     makeDraftPick,
+    trades,
+    proposeTrade,
+    updateTradeStatus,
+    getAssets,
   } = useStore();
 
   const myRosterId = currentUser?.rosterId;
@@ -42,6 +46,13 @@ export default function DraftPickPage() {
   const lastPickIdxRef = useRef(-1);
   // flash has two phases: 'big' (5s full-screen slam) → 'small' (inline card)
   const [flash, setFlash] = useState(null);
+  // In-draft trade modal state
+  const [tradeOpen, setTradeOpen] = useState(false);
+  const [tradeTargetId, setTradeTargetId] = useState('');
+  const [tradeMine, setTradeMine] = useState([]);
+  const [tradeTheirs, setTradeTheirs] = useState([]);
+  const [tradeResult, setTradeResult] = useState(null);
+  const [tradeSubmitting, setTradeSubmitting] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -143,6 +154,68 @@ export default function DraftPickPage() {
       })
       .slice(0, 200);
   }, [playerDB, takenIds, search, posFilter]);
+
+  // -------- In-draft trade plumbing --------
+  const myAssets = useMemo(
+    () => getAssets(myRosterId),
+    [getAssets, myRosterId]
+  );
+  const theirAssets = useMemo(
+    () => (tradeTargetId ? getAssets(Number(tradeTargetId)) : { players: [], picks: [] }),
+    [getAssets, tradeTargetId]
+  );
+  const allMine = useMemo(() => [...(myAssets.players || []), ...(myAssets.picks || [])], [myAssets]);
+  const allTheirs = useMemo(() => [...(theirAssets.players || []), ...(theirAssets.picks || [])], [theirAssets]);
+  const otherTeams = teams.filter(t => t.rosterId !== myRosterId);
+  const incomingPending = (trades || []).filter(
+    t => t.toRosterId === myRosterId && t.status === 'pending'
+  );
+  const outgoingPending = (trades || []).filter(
+    t => t.fromRosterId === myRosterId && t.status === 'pending'
+  );
+  const liveValidation = useMemo(() => {
+    if (tradeMine.length === 0 && tradeTheirs.length === 0) return null;
+    return validateTrade(tradeMine, tradeTheirs);
+  }, [tradeMine, tradeTheirs]);
+
+  const toggleMine = (a) => {
+    setTradeMine(prev => prev.some(x => x.id === a.id) ? prev.filter(x => x.id !== a.id) : [...prev, a]);
+    setTradeResult(null);
+  };
+  const toggleTheirs = (a) => {
+    setTradeTheirs(prev => prev.some(x => x.id === a.id) ? prev.filter(x => x.id !== a.id) : [...prev, a]);
+    setTradeResult(null);
+  };
+  const resetTradeModal = () => {
+    setTradeTargetId('');
+    setTradeMine([]);
+    setTradeTheirs([]);
+    setTradeResult(null);
+  };
+  const closeTradeModal = () => {
+    setTradeOpen(false);
+    resetTradeModal();
+  };
+  const handleProposeTrade = async () => {
+    if (!tradeTargetId || tradeMine.length === 0 || tradeTheirs.length === 0 || tradeSubmitting) return;
+    setTradeSubmitting(true);
+    const r = await proposeTrade(myRosterId, Number(tradeTargetId), tradeMine, tradeTheirs);
+    setTradeSubmitting(false);
+    setTradeResult(r);
+    if (r?.success) {
+      // Keep modal open briefly so user sees the success confirmation, then close.
+      setTimeout(() => closeTradeModal(), 1200);
+    }
+  };
+  const handleAcceptIncoming = async (tradeId) => {
+    await updateTradeStatus(tradeId, 'accepted');
+  };
+  const handleRejectIncoming = async (tradeId) => {
+    await updateTradeStatus(tradeId, 'rejected');
+  };
+  const handleCancelOutgoing = async (tradeId) => {
+    await updateTradeStatus(tradeId, 'cancelled');
+  };
 
   const handleSubmit = async () => {
     if (!selected || submitting) return;
@@ -286,18 +359,92 @@ export default function DraftPickPage() {
             {draftState.isTrial && <span className="ml-2 text-yellow-400 font-semibold">🧪 TRIAL</span>}
           </p>
         </div>
-        {myNextSlot && (
-          <div className="text-right">
-            <div className="text-[10px] uppercase tracking-widest text-[#8a95a8]">Your next pick</div>
-            <div className="text-lg font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>
-              R{myNextSlot.round} · Pick {myNextSlot.slot}
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {myNextSlot && (
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-widest text-[#8a95a8]">Your next pick</div>
+              <div className="text-lg font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>
+                R{myNextSlot.round} · Pick {myNextSlot.slot}
+              </div>
+              {myNextSlot.picksUntil > 0 && (
+                <div className="text-xs text-[#8a95a8]">{myNextSlot.picksUntil} pick{myNextSlot.picksUntil === 1 ? '' : 's'} away</div>
+              )}
             </div>
-            {myNextSlot.picksUntil > 0 && (
-              <div className="text-xs text-[#8a95a8]">{myNextSlot.picksUntil} pick{myNextSlot.picksUntil === 1 ? '' : 's'} away</div>
+          )}
+          <button
+            onClick={() => setTradeOpen(true)}
+            className="px-4 py-2 text-sm font-semibold bg-[#4da6ff]/15 text-[#4da6ff] border border-[#4da6ff]/40 rounded-xl hover:bg-[#4da6ff]/25 relative"
+          >
+            🔄 Propose Trade
+            {incomingPending.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-yellow-400 text-black text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse">
+                {incomingPending.length}
+              </span>
             )}
-          </div>
-        )}
+          </button>
+        </div>
       </div>
+
+      {/* Incoming trade proposals — accept/reject inline */}
+      {incomingPending.length > 0 && (
+        <div className="space-y-2">
+          {incomingPending.map(t => {
+            const from = teams.find(x => x.rosterId === t.fromRosterId);
+            const fmt = (as) => (as || []).map(a => a.type === 'pick' ? a.label : `${a.name} (${a.position})`).join(', ') || '—';
+            return (
+              <div key={t.id} className="bg-yellow-500/10 border border-yellow-500/40 rounded-2xl p-4">
+                <div className="text-[10px] uppercase tracking-widest text-yellow-400 font-bold mb-1">
+                  📩 Incoming Trade from {from?.teamName || 'Unknown'}
+                </div>
+                <div className="text-sm text-white mb-1">
+                  <span className="text-[#8a95a8]">They send:</span> {fmt(t.fromAssets)}
+                </div>
+                <div className="text-sm text-white mb-3">
+                  <span className="text-[#8a95a8]">You send:</span> {fmt(t.toAssets)}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleAcceptIncoming(t.id)}
+                    className="flex-1 px-4 py-2 bg-[#00e5a0] text-black text-sm font-bold rounded-xl hover:bg-[#00ffb3]"
+                  >
+                    ✅ Accept
+                  </button>
+                  <button
+                    onClick={() => handleRejectIncoming(t.id)}
+                    className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/40 text-sm font-semibold rounded-xl hover:bg-red-500/30"
+                  >
+                    ❌ Reject
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Outgoing pending proposals — cancel inline */}
+      {outgoingPending.length > 0 && (
+        <div className="space-y-2">
+          {outgoingPending.map(t => {
+            const to = teams.find(x => x.rosterId === t.toRosterId);
+            const fmt = (as) => (as || []).map(a => a.type === 'pick' ? a.label : `${a.name} (${a.position})`).join(', ') || '—';
+            return (
+              <div key={t.id} className="bg-[#1a1f27] border border-[#2a3040] rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-xs flex-1 min-w-[200px]">
+                  <span className="text-[#8a95a8] uppercase tracking-wider text-[10px] font-bold">Pending to {to?.teamName}:</span>{' '}
+                  <span className="text-white">{fmt(t.fromAssets)} ↔ {fmt(t.toAssets)}</span>
+                </div>
+                <button
+                  onClick={() => handleCancelOutgoing(t.id)}
+                  className="px-3 py-1 bg-[#1a1f27] text-[#8a95a8] border border-[#2a3040] text-xs font-semibold rounded-lg hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {isOnTheClock ? (
         <div className={`rounded-2xl border-2 p-5 ${
@@ -332,6 +479,25 @@ export default function DraftPickPage() {
               </div>
             </div>
           </div>
+          {/* Giant always-visible submit button inside the banner — so managers
+              never have to hunt for it on mobile or scroll back to the bottom. */}
+          <button
+            onClick={handleSubmit}
+            disabled={!selected || submitting}
+            className={`mt-4 w-full py-4 text-lg font-black rounded-xl transition-all ${
+              selected && !submitting
+                ? 'bg-[#00e5a0] text-black hover:bg-[#00ffb3] active:bg-[#00cc8f] shadow-lg shadow-[#00e5a0]/30'
+                : 'bg-[#1a1f27] text-[#4a5568] cursor-not-allowed'
+            }`}
+            style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
+          >
+            {submitting
+              ? 'SUBMITTING…'
+              : selected
+                ? `🔒 SUBMIT PICK: ${selected.name}`
+                : 'Select a player below'}
+          </button>
+          {error && <div className="text-xs text-red-400 mt-2 text-center">{error}</div>}
         </div>
       ) : (
         <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-5">
@@ -397,26 +563,213 @@ export default function DraftPickPage() {
       </div>
 
       {isOnTheClock && (
-        <div className="sticky bottom-0 bg-[#111418]/95 backdrop-blur border-t border-[#2a3040] -mx-4 md:-mx-8 px-4 md:px-8 py-3 flex items-center justify-between gap-3">
+        <div className="sticky bottom-0 bg-[#111418]/95 backdrop-blur border-t-2 border-[#00e5a0]/40 -mx-4 md:-mx-8 px-4 md:px-8 py-4 flex items-center gap-3 shadow-2xl">
           <div className="flex-1 min-w-0">
             {selected ? (
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${posColor(selected.position)}`}>{selected.position}</span>
-                <span className="text-sm font-semibold text-white truncate">{selected.name}</span>
-                <span className="text-xs text-[#8a95a8]">{selected.team || 'FA'}</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${posColor(selected.position)}`}>{selected.position}</span>
+                  <span className="text-sm font-semibold text-white truncate">{selected.name}</span>
+                  <span className="text-xs text-[#8a95a8]">{selected.team || 'FA'}</span>
+                </div>
+                {error && <div className="text-xs text-red-400 mt-1">{error}</div>}
               </div>
             ) : (
-              <span className="text-sm text-[#8a95a8]">Select a player to pick</span>
+              <span className="text-sm text-[#8a95a8]">Tap a player above ↑</span>
             )}
-            {error && <div className="text-xs text-red-400 mt-1">{error}</div>}
           </div>
           <button
             onClick={handleSubmit}
             disabled={!selected || submitting}
-            className="px-5 py-2 bg-[#00e5a0] text-black text-sm font-semibold rounded-xl hover:bg-[#00ffb3] disabled:opacity-30 disabled:cursor-not-allowed"
+            className="px-6 py-4 bg-[#00e5a0] text-black text-base font-black rounded-xl hover:bg-[#00ffb3] active:bg-[#00cc8f] disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-[#00e5a0]/30 shrink-0"
+            style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
           >
-            {submitting ? 'Submitting...' : 'Submit Pick →'}
+            {submitting ? 'SUBMITTING…' : 'SUBMIT →'}
           </button>
+        </div>
+      )}
+
+      {/* Propose-trade modal. Reuses store.validateTrade for the same rules
+          that govern normal trades (player/2026-pick count balance, per-year
+          future-pick balance). Once accepted by the counterparty, the draft
+          order rebuilds automatically. */}
+      {tradeOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3"
+          onClick={closeTradeModal}
+        >
+          <div
+            className="bg-[#111418] border border-[#2a3040] rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-[#111418] border-b border-[#2a3040] px-5 py-3 flex items-center justify-between">
+              <h2 className="text-lg font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>
+                🔄 PROPOSE IN-DRAFT TRADE
+              </h2>
+              <button
+                onClick={closeTradeModal}
+                className="px-3 py-1 text-xs text-[#8a95a8] border border-[#2a3040] rounded-lg hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-xs text-[#8a95a8]">
+                Same rules as any other trade: players + 2026 picks must balance by total count, 2027+ picks balance per year.
+                Once accepted, the draft order updates live.
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-[#8a95a8] mb-2">
+                  Trade With
+                </label>
+                <select
+                  value={tradeTargetId}
+                  onChange={(e) => {
+                    setTradeTargetId(e.target.value);
+                    setTradeTheirs([]);
+                    setTradeResult(null);
+                  }}
+                  className="w-full bg-[#0a0c10] border border-[#2a3040] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#00e5a0]"
+                >
+                  <option value="">— Select a team —</option>
+                  {otherTeams.map(t => (
+                    <option key={t.rosterId} value={t.rosterId}>
+                      {t.teamName} ({t.displayName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-[#0a0c10] border border-[#2a3040] rounded-xl p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-[#00e5a0] mb-2">
+                    You Send
+                  </div>
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {allMine.length === 0 && (
+                      <div className="text-xs text-[#4a5568] py-2">You have no tradable assets</div>
+                    )}
+                    {allMine.map(a => {
+                      const on = tradeMine.some(x => x.id === a.id);
+                      const isPick = a.type === 'pick';
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => toggleMine(a)}
+                          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left border text-xs ${
+                            on ? 'bg-[#00e5a0]/10 border-[#00e5a0]/40' : 'bg-transparent border-[#2a3040] hover:border-[#3a4455]'
+                          }`}
+                        >
+                          <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${
+                            on ? 'border-[#00e5a0] bg-[#00e5a0]' : 'border-[#2a3040]'
+                          }`}>
+                            {on && <span className="text-black text-[9px] font-bold">✓</span>}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                            isPick ? 'bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/30' : posColor(a.position)
+                          }`}>
+                            {isPick ? 'PICK' : a.position}
+                          </span>
+                          <span className="flex-1 text-white truncate">
+                            {isPick ? a.label : a.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="bg-[#0a0c10] border border-[#2a3040] rounded-xl p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-widest text-[#4da6ff] mb-2">
+                    You Receive
+                  </div>
+                  {!tradeTargetId ? (
+                    <div className="text-xs text-[#4a5568] py-2">Pick a team first</div>
+                  ) : (
+                    <div className="space-y-1 max-h-64 overflow-y-auto">
+                      {allTheirs.length === 0 && (
+                        <div className="text-xs text-[#4a5568] py-2">No tradable assets</div>
+                      )}
+                      {allTheirs.map(a => {
+                        const on = tradeTheirs.some(x => x.id === a.id);
+                        const isPick = a.type === 'pick';
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            onClick={() => toggleTheirs(a)}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left border text-xs ${
+                              on ? 'bg-[#4da6ff]/10 border-[#4da6ff]/40' : 'bg-transparent border-[#2a3040] hover:border-[#3a4455]'
+                            }`}
+                          >
+                            <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${
+                              on ? 'border-[#4da6ff] bg-[#4da6ff]' : 'border-[#2a3040]'
+                            }`}>
+                              {on && <span className="text-black text-[9px] font-bold">✓</span>}
+                            </span>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                              isPick ? 'bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/30' : posColor(a.position)
+                            }`}>
+                              {isPick ? 'PICK' : a.position}
+                            </span>
+                            <span className="flex-1 text-white truncate">
+                              {isPick ? a.label : a.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {liveValidation && !liveValidation.valid && liveValidation.errors?.length > 0 && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 text-xs text-red-400">
+                  {liveValidation.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                </div>
+              )}
+              {liveValidation && liveValidation.valid && (
+                <div className="bg-[#00e5a0]/10 border border-[#00e5a0]/30 rounded-xl px-3 py-2 text-xs text-[#00e5a0]">
+                  ✓ Trade is balanced — ready to propose
+                </div>
+              )}
+
+              {tradeResult && tradeResult.success && (
+                <div className="bg-[#00e5a0]/15 border border-[#00e5a0]/40 rounded-xl px-3 py-2 text-xs text-[#00e5a0]">
+                  ✓ Proposal sent. The other team will see it on their Draft Pick tab.
+                </div>
+              )}
+              {tradeResult && !tradeResult.success && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 text-xs text-red-400">
+                  {(tradeResult.errors || ['Proposal rejected']).join(' · ')}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={closeTradeModal}
+                  className="px-4 py-2 text-sm text-[#8a95a8] border border-[#2a3040] rounded-xl hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleProposeTrade}
+                  disabled={
+                    !tradeTargetId ||
+                    tradeMine.length === 0 ||
+                    tradeTheirs.length === 0 ||
+                    (liveValidation && !liveValidation.valid) ||
+                    tradeSubmitting
+                  }
+                  className="flex-1 px-4 py-2.5 bg-[#4da6ff] text-black text-sm font-bold rounded-xl hover:bg-[#5ab3ff] disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  {tradeSubmitting ? 'Sending…' : 'Propose Trade →'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
