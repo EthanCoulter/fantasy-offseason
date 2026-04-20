@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import useStore, { validateTrade, calculateSlotImpact } from "../store";
+import { posPill, posBox, posBoxOn } from "../utils/posColors";
 
 function AssetBadge({ asset, onRemove }) {
   const isPick = asset.type === "pick";
@@ -8,7 +9,7 @@ function AssetBadge({ asset, onRemove }) {
       className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium border ${
         isPick
           ? "bg-[#4da6ff]/10 border-[#4da6ff]/30 text-[#4da6ff]"
-          : "bg-[#00e5a0]/10 border-[#00e5a0]/30 text-[#00e5a0]"
+          : posPill(asset.position)
       }`}
     >
       <span>{isPick ? asset.label : `${asset.name} (${asset.position})`}</span>
@@ -37,17 +38,18 @@ function AssetSelector({ assets, selected, onToggle, label, color }) {
         {assets.map((asset) => {
           const isSelected = selected.some((s) => s.id === asset.id);
           const isPick = asset.type === "pick";
+          const rowTint = isPick
+            ? isSelected
+              ? "bg-[#4da6ff]/10 border-[#4da6ff]/40"
+              : "bg-[#0a0c10] border-[#2a3040] hover:border-[#3a4455]"
+            : isSelected
+              ? posBoxOn(asset.position)
+              : `${posBox(asset.position)} hover:brightness-125`;
           return (
             <div
               key={asset.id}
               onClick={() => onToggle(asset)}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all border ${
-                isSelected
-                  ? color === "green"
-                    ? "bg-[#00e5a0]/10 border-[#00e5a0]/40"
-                    : "bg-[#4da6ff]/10 border-[#4da6ff]/40"
-                  : "bg-[#0a0c10] border-[#2a3040] hover:border-[#3a4455]"
-              }`}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all border ${rowTint}`}
             >
               <div
                 className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${
@@ -66,7 +68,7 @@ function AssetSelector({ assets, selected, onToggle, label, color }) {
                 className={`text-xs px-1.5 py-0.5 rounded font-semibold border ${
                   isPick
                     ? "bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/20"
-                    : "bg-[#00e5a0]/10 text-[#00e5a0] border-[#00e5a0]/20"
+                    : posPill(asset.position)
                 }`}
               >
                 {isPick ? "PICK" : asset.position}

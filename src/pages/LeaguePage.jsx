@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import useStore, { YEARS } from '../store';
 import { downloadCsv, buildLeagueRosterCsv, buildDraftRecapCsv } from '../utils/csv';
+import { posPill, posBox } from '../utils/posColors';
 
 const YEAR = new Date().getFullYear();
 
@@ -120,8 +121,8 @@ export default function LeaguePage() {
                     {assets.players?.length > 0 ? (
                       <div className="space-y-1">
                         {assets.players.map(p => (
-                          <div key={p.id} className="flex items-center gap-2 text-sm">
-                            <span className="text-xs text-[#00e5a0] font-semibold w-8 shrink-0">{p.position}</span>
+                          <div key={p.id} className={`flex items-center gap-2 text-sm px-2 py-1 rounded border ${posBox(p.position)}`}>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold w-9 text-center shrink-0 ${posPill(p.position)}`}>{p.position}</span>
                             <span className="text-white">{p.name}</span>
                           </div>
                         ))}

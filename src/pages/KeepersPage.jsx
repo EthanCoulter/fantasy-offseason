@@ -1,16 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import useStore, { isOffensiveForTeam, BASE_OFFENSE_KEEPERS, BASE_DEFENSE_KEEPERS } from '../store';
-
-const POS_COLORS = {
-  QB: 'bg-red-500/20 text-red-400 border-red-500/30',
-  RB: 'bg-green-500/20 text-green-400 border-green-500/30',
-  WR: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  TE: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  K:  'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  DEF:'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  default: 'bg-[#2a3040] text-[#8a95a8] border-[#3a4455]',
-};
-function posColor(pos) { return POS_COLORS[pos] || POS_COLORS.default; }
+import { posPill, posBox, posBoxOn } from '../utils/posColors';
 
 export default function KeepersPage() {
   const { currentUser, teams, playerDB, keepers, setKeepers, draftPositions, slotsBurned, getMaxKeeperSlots, bonusPlayers } = useStore();
@@ -157,8 +147,8 @@ export default function KeepersPage() {
                   className={`flex-1 basis-16 min-w-[56px] sm:min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center transition-all ${
                     isBurned
                       ? 'border-[#ff6b35]/40 bg-[#ff6b35]/5 border-dashed'
-                      : keeperId
-                        ? 'border-[#00e5a0]/40 bg-[#00e5a0]/5 border-solid'
+                      : p
+                        ? `${posBoxOn(p.position)} border-solid`
                         : 'border-[#2a3040] bg-[#0a0c10] border-dashed'
                   }`}
                 >
@@ -170,7 +160,7 @@ export default function KeepersPage() {
                   ) : p ? (
                     <>
                       <span className="text-xs font-bold text-white leading-tight">{p.first_name[0]}. {p.last_name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posColor(p.position)}`}>{p.position}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posPill(p.position)}`}>{p.position}</span>
                     </>
                   ) : (
                     <span className="text-[#4a5568] text-xs">Empty</span>
@@ -183,13 +173,13 @@ export default function KeepersPage() {
               return (
                 <div
                   key={`bonus-off-${id}`}
-                  className="flex-1 basis-16 min-w-[56px] sm:min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center border-[#4da6ff]/50 bg-[#4da6ff]/5"
+                  className={`flex-1 basis-16 min-w-[56px] sm:min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center ${p ? posBoxOn(p.position) : 'border-[#4da6ff]/50 bg-[#4da6ff]/5'}`}
                   title="Bonus keeper — locked from trade"
                 >
                   {p ? (
                     <>
                       <span className="text-xs font-bold text-white leading-tight">🔒 {p.first_name[0]}. {p.last_name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posColor(p.position)}`}>{p.position}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posPill(p.position)}`}>{p.position}</span>
                     </>
                   ) : (
                     <span className="text-[10px] text-[#4da6ff]">🔒 Bonus</span>
@@ -221,8 +211,8 @@ export default function KeepersPage() {
                   className={`flex-1 h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center transition-all ${
                     isBurned
                       ? 'border-[#ff6b35]/40 bg-[#ff6b35]/5 border-dashed'
-                      : keeperId
-                        ? 'border-yellow-400/40 bg-yellow-400/5 border-solid'
+                      : p
+                        ? `${posBoxOn(p.position)} border-solid`
                         : 'border-[#2a3040] bg-[#0a0c10] border-dashed'
                   }`}
                 >
@@ -234,7 +224,7 @@ export default function KeepersPage() {
                   ) : p ? (
                     <>
                       <span className="text-xs font-bold text-white">{p.first_name[0]}. {p.last_name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posColor(p.position)}`}>{p.position}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posPill(p.position)}`}>{p.position}</span>
                     </>
                   ) : (
                     <span className="text-[#4a5568] text-xs">Empty</span>
@@ -247,13 +237,13 @@ export default function KeepersPage() {
               return (
                 <div
                   key={`bonus-def-${id}`}
-                  className="flex-1 h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center border-[#4da6ff]/50 bg-[#4da6ff]/5"
+                  className={`flex-1 h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center ${p ? posBoxOn(p.position) : 'border-[#4da6ff]/50 bg-[#4da6ff]/5'}`}
                   title="Bonus keeper — locked from trade"
                 >
                   {p ? (
                     <>
                       <span className="text-xs font-bold text-white">🔒 {p.first_name[0]}. {p.last_name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posColor(p.position)}`}>{p.position}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded mt-0.5 border ${posPill(p.position)}`}>{p.position}</span>
                     </>
                   ) : (
                     <span className="text-[10px] text-[#4da6ff]">🔒 Bonus</span>
@@ -300,10 +290,10 @@ export default function KeepersPage() {
                     isBonus
                       ? 'bg-[#4da6ff]/5 cursor-not-allowed'
                       : isSelected
-                        ? 'bg-[#00e5a0]/5 hover:bg-[#00e5a0]/10'
+                        ? posBoxOn(player.position)
                         : canAdd
-                          ? 'hover:bg-[#1a1f27] cursor-pointer'
-                          : 'opacity-40 cursor-not-allowed'
+                          ? `${posBox(player.position)} hover:brightness-125 cursor-pointer`
+                          : `${posBox(player.position)} opacity-40 cursor-not-allowed`
                   }`}
                 >
                   <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
@@ -317,7 +307,7 @@ export default function KeepersPage() {
                       : isSelected && <span className="text-black text-xs font-bold">✓</span>}
                   </div>
 
-                  <span className={`text-xs px-2 py-0.5 rounded border font-semibold w-10 text-center ${posColor(player.position)}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded border font-semibold w-10 text-center ${posPill(player.position)}`}>
                     {player.position}
                   </span>
 

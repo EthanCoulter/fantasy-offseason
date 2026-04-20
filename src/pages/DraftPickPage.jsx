@@ -1,21 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useStore, { clockSecondsForRound, validateTrade } from '../store';
-
-const POS_COLORS = {
-  QB: 'bg-red-500/15 text-red-400 border-red-500/30',
-  RB: 'bg-green-500/15 text-green-400 border-green-500/30',
-  WR: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-  TE: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
-  K:  'bg-purple-500/15 text-purple-400 border-purple-500/30',
-  DL: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-  DE: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-  DT: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-  LB: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
-  DB: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
-  CB: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
-  S:  'bg-pink-500/15 text-pink-400 border-pink-500/30',
-};
-const posColor = (p) => POS_COLORS[p] || 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040]';
+import { posPill, posBox, posBoxOn } from '../utils/posColors';
 
 const DRAFT_SOUND_URL = '/draft-pick.mp3';
 const SOUND_ROUNDS = new Set([1, 2, 3]);
@@ -279,7 +264,7 @@ export default function DraftPickPage() {
                       <div className="w-full h-full flex items-center justify-center text-6xl">🏈</div>
                     )}
                   </div>
-                  <div className={`absolute -bottom-2 -right-2 px-3 py-1 rounded-lg border-2 font-black text-sm ${posColor(flash.pos)}`}>
+                  <div className={`absolute -bottom-2 -right-2 px-3 py-1 rounded-lg border-2 font-black text-sm ${posPill(flash.pos)}`}>
                     {flash.pos}
                   </div>
                 </div>
@@ -339,7 +324,7 @@ export default function DraftPickPage() {
               {flash.team} selects {flash.player}
             </div>
             <div className="flex items-center gap-2 text-[10px] mt-0.5">
-              <span className={`px-1.5 py-0.5 rounded border font-semibold ${posColor(flash.pos)}`}>{flash.pos}</span>
+              <span className={`px-1.5 py-0.5 rounded border font-semibold ${posPill(flash.pos)}`}>{flash.pos}</span>
               {flash.nflTeam && <span className="text-[#8a95a8]">{flash.nflTeam}</span>}
             </div>
           </div>
@@ -547,12 +532,12 @@ export default function DraftPickPage() {
               <button
                 key={p.id}
                 onClick={() => setSelected(p)}
-                className={`w-full px-4 sm:px-5 py-2.5 flex items-center gap-3 text-left transition-colors ${
-                  isSel ? 'bg-[#00e5a0]/15' : 'hover:bg-[#1a1f27]'
+                className={`w-full px-4 sm:px-5 py-2.5 flex items-center gap-3 text-left transition-colors border ${
+                  isSel ? posBoxOn(p.position) : `${posBox(p.position)} hover:brightness-125`
                 }`}
               >
                 <span className="text-[10px] font-bold text-[#4a5568] w-10 text-right">#{p.adp || '—'}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${posColor(p.position)}`}>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${posPill(p.position)}`}>
                   {p.position}
                 </span>
                 <span className="flex-1 text-sm text-white truncate">{p.name}</span>
@@ -570,7 +555,7 @@ export default function DraftPickPage() {
             {selected ? (
               <div>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${posColor(selected.position)}`}>{selected.position}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${posPill(selected.position)}`}>{selected.position}</span>
                   <span className="text-sm font-semibold text-white truncate">{selected.name}</span>
                   <span className="text-xs text-[#8a95a8]">{selected.team || 'FA'}</span>
                 </div>
@@ -670,7 +655,7 @@ export default function DraftPickPage() {
                             {on && <span className="text-black text-[9px] font-bold">✓</span>}
                           </span>
                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
-                            isPick ? 'bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/30' : posColor(a.position)
+                            isPick ? 'bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/30' : posPill(a.position)
                           }`}>
                             {isPick ? 'PICK' : a.position}
                           </span>
@@ -712,7 +697,7 @@ export default function DraftPickPage() {
                               {on && <span className="text-black text-[9px] font-bold">✓</span>}
                             </span>
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${
-                              isPick ? 'bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/30' : posColor(a.position)
+                              isPick ? 'bg-[#4da6ff]/10 text-[#4da6ff] border-[#4da6ff]/30' : posPill(a.position)
                             }`}>
                               {isPick ? 'PICK' : a.position}
                             </span>

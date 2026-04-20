@@ -1,16 +1,6 @@
 import React from 'react';
 import useStore, { BASE_OFFENSE_KEEPERS, BASE_DEFENSE_KEEPERS } from '../store';
-
-const POS_COLORS = {
-  QB: 'bg-red-500/20 text-red-400 border-red-500/30',
-  RB: 'bg-green-500/20 text-green-400 border-green-500/30',
-  WR: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  TE: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  K:  'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  DEF:'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  default: 'bg-[#2a3040] text-[#8a95a8] border-[#3a4455]',
-};
-function posColor(pos) { return POS_COLORS[pos] || POS_COLORS.default; }
+import { posPill, posBox } from '../utils/posColors';
 
 const YEAR = new Date().getFullYear();
 
@@ -99,8 +89,8 @@ export default function MyTeamPage() {
         ) : (
           <div className="divide-y divide-[#2a3040]">
             {assets.players.map(player => (
-              <div key={player.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3">
-                <span className={`text-xs px-2 py-0.5 rounded border font-semibold w-10 text-center ${posColor(player.position)}`}>
+              <div key={player.id} className={`flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 ${posBox(player.position)}`}>
+                <span className={`text-xs px-2 py-0.5 rounded border font-semibold w-10 text-center ${posPill(player.position)}`}>
                   {player.position}
                 </span>
                 <div>

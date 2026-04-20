@@ -1,37 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import useStore, { ROUNDS, YEARS, validateTrade } from '../store';
 import { hashPin } from '../utils/pinHash';
-
-const POS_COLORS = {
-  QB: 'bg-red-500/10 text-red-400 border-red-500/20',
-  RB: 'bg-green-500/10 text-green-400 border-green-500/20',
-  WR: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  TE: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  K: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  DL: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  DE: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  DT: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  LB: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
-  DB: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
-  CB: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
-  S: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
-};
-
-// Strong per-position fill used on the mock-draft slot once a pick is made
-const POS_SLOT_FILL = {
-  QB: 'bg-red-500/15 border-red-500/50',
-  RB: 'bg-green-500/15 border-green-500/50',
-  WR: 'bg-blue-500/15 border-blue-500/50',
-  TE: 'bg-orange-500/15 border-orange-500/50',
-  K: 'bg-purple-500/15 border-purple-500/50',
-  DL: 'bg-yellow-500/15 border-yellow-500/50',
-  DE: 'bg-yellow-500/15 border-yellow-500/50',
-  DT: 'bg-yellow-500/15 border-yellow-500/50',
-  LB: 'bg-teal-500/15 border-teal-500/50',
-  DB: 'bg-pink-500/15 border-pink-500/50',
-  CB: 'bg-pink-500/15 border-pink-500/50',
-  S: 'bg-pink-500/15 border-pink-500/50',
-};
+import { posPill, posBox, posBoxOn } from '../utils/posColors';
 
 const OFFENSE_POS = ['QB', 'RB', 'WR', 'TE', 'K'];
 const IDP_POS = ['DL', 'DE', 'DT', 'LB', 'DB', 'CB', 'S'];
@@ -204,18 +174,19 @@ function HypotheticalTradeModal({ open, onClose, teams, teamAssets, onSubmit }) 
                 ) : listA.map(asset => {
                   const sel = sideASel.some(a => a.id === asset.id);
                   const isPick = asset.type === 'pick';
+                  const rowTint = isPick
+                    ? sel ? 'bg-[#4da6ff]/10 border-[#4da6ff]/40' : 'bg-transparent border-transparent hover:bg-[#1a1f27]'
+                    : sel ? posBoxOn(asset.position) : `${posBox(asset.position)} hover:brightness-125`;
                   return (
                     <div
                       key={asset.id}
                       onClick={() => toggle(sideASel, setSideASel)(asset)}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-xs ${
-                        sel ? 'bg-[#00e5a0]/10 border-[#00e5a0]/40' : 'bg-transparent border-transparent hover:bg-[#1a1f27]'
-                      }`}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-xs ${rowTint}`}
                     >
                       <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${sel ? 'bg-[#00e5a0] border-[#00e5a0]' : 'border-[#2a3040]'}`}>
                         {sel && <span className="text-black text-[9px] font-bold">✓</span>}
                       </span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${isPick ? 'text-[#4da6ff]' : 'text-[#00e5a0]'}`}>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold border ${isPick ? 'text-[#4da6ff] border-[#4da6ff]/20' : posPill(asset.position)}`}>
                         {isPick ? 'PICK' : asset.position}
                       </span>
                       <span className="text-white truncate">
@@ -239,18 +210,19 @@ function HypotheticalTradeModal({ open, onClose, teams, teamAssets, onSubmit }) 
                 ) : listB.map(asset => {
                   const sel = sideBSel.some(a => a.id === asset.id);
                   const isPick = asset.type === 'pick';
+                  const rowTint = isPick
+                    ? sel ? 'bg-[#4da6ff]/10 border-[#4da6ff]/40' : 'bg-transparent border-transparent hover:bg-[#1a1f27]'
+                    : sel ? posBoxOn(asset.position) : `${posBox(asset.position)} hover:brightness-125`;
                   return (
                     <div
                       key={asset.id}
                       onClick={() => toggle(sideBSel, setSideBSel)(asset)}
-                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-xs ${
-                        sel ? 'bg-[#4da6ff]/10 border-[#4da6ff]/40' : 'bg-transparent border-transparent hover:bg-[#1a1f27]'
-                      }`}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer border text-xs ${rowTint}`}
                     >
                       <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${sel ? 'bg-[#4da6ff] border-[#4da6ff]' : 'border-[#2a3040]'}`}>
                         {sel && <span className="text-black text-[9px] font-bold">✓</span>}
                       </span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${isPick ? 'text-[#4da6ff]' : 'text-[#00e5a0]'}`}>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold border ${isPick ? 'text-[#4da6ff] border-[#4da6ff]/20' : posPill(asset.position)}`}>
                         {isPick ? 'PICK' : asset.position}
                       </span>
                       <span className="text-white truncate">
@@ -381,7 +353,7 @@ function PlayerPicker({ open, onClose, availablePlayers, onSelect, title }) {
               className="w-full px-5 py-2.5 flex items-center gap-3 hover:bg-[#1a1f27] transition-colors text-left"
             >
               <span className="text-[10px] font-bold text-[#4a5568] w-10 text-right">#{p.adp || '—'}</span>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${POS_COLORS[p.position] || 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040]'}`}>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${posPill(p.position)}`}>
                 {p.position}
               </span>
               <span className="flex-1 text-sm text-white truncate">{p.name}</span>
@@ -753,7 +725,7 @@ export default function MockDraftPage() {
                   const playerName = player ? (player.full_name || `${player.first_name || ''} ${player.last_name || ''}`.trim()) : null;
 
                   const slotFill = pick && player
-                    ? (POS_SLOT_FILL[player.position] || 'bg-[#00e5a0]/5 border-[#00e5a0]/30')
+                    ? posBoxOn(player.position)
                     : 'bg-[#1a1f27] border-[#2a3040]';
 
                   const slotLabel = isCurrentMockYear
@@ -795,7 +767,7 @@ export default function MockDraftPage() {
                           <>
                             <div className="text-xs font-semibold text-white truncate">{playerName}</div>
                             <div className="flex items-center gap-1 mt-0.5">
-                              <span className={`text-[9px] font-bold px-1 rounded border ${POS_COLORS[player.position] || ''}`}>{player.position}</span>
+                              <span className={`text-[9px] font-bold px-1 rounded border ${posPill(player.position)}`}>{player.position}</span>
                               <span className="text-[9px] text-[#8a95a8]">{player.team || 'FA'}</span>
                             </div>
                           </>

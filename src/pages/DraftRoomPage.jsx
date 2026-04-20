@@ -1,22 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useStore, { clockSecondsForRound, YEARS, ROUNDS, testDiscordWebhook } from '../store';
 import { downloadCsv, buildDraftRecapCsv } from '../utils/csv';
-
-const POS_COLORS = {
-  QB: 'bg-red-500/15 text-red-400 border-red-500/30',
-  RB: 'bg-green-500/15 text-green-400 border-green-500/30',
-  WR: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
-  TE: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
-  K:  'bg-purple-500/15 text-purple-400 border-purple-500/30',
-  DL: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-  DE: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-  DT: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-  LB: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
-  DB: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
-  CB: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
-  S:  'bg-pink-500/15 text-pink-400 border-pink-500/30',
-};
-const posColor = (p) => POS_COLORS[p] || 'bg-[#1a1f27] text-[#8a95a8] border-[#2a3040]';
+import { posPill, posBoxOn } from '../utils/posColors';
 
 const DRAFT_SOUND_URL = '/draft-pick.mp3';
 // Sound only plays for picks in these rounds — later rounds are quick-fire
@@ -408,7 +393,7 @@ export default function DraftRoomPage() {
                       <div className="w-full h-full flex items-center justify-center text-6xl">🏈</div>
                     )}
                   </div>
-                  <div className={`absolute -bottom-2 -right-2 px-3 py-1 rounded-lg border-2 font-black text-sm ${posColor(flash.pos)}`}>
+                  <div className={`absolute -bottom-2 -right-2 px-3 py-1 rounded-lg border-2 font-black text-sm ${posPill(flash.pos)}`}>
                     {flash.pos}
                   </div>
                 </div>
@@ -470,7 +455,7 @@ export default function DraftRoomPage() {
               {flash.team} selects {flash.player}
             </div>
             <div className="flex items-center gap-2 text-xs mt-1">
-              <span className={`px-1.5 py-0.5 rounded border font-semibold ${posColor(flash.pos)}`}>{flash.pos}</span>
+              <span className={`px-1.5 py-0.5 rounded border font-semibold ${posPill(flash.pos)}`}>{flash.pos}</span>
               {flash.nflTeam && <span className="text-[#8a95a8]">{flash.nflTeam}</span>}
             </div>
           </div>
@@ -511,7 +496,7 @@ export default function DraftRoomPage() {
                 className="w-full px-5 py-2 flex items-center gap-3 hover:bg-[#1a1f27] text-left"
               >
                 <span className="text-[10px] font-bold text-[#4a5568] w-10 text-right">#{p.adp || '—'}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${posColor(p.position)}`}>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border w-9 text-center ${posPill(p.position)}`}>
                   {p.position}
                 </span>
                 <span className="flex-1 text-sm text-white truncate">{p.name}</span>
@@ -557,7 +542,7 @@ export default function DraftRoomPage() {
                       // true drafter so it's obvious who selected the player.
                       const drafter = teams.find(t => t.rosterId === pick.rosterId);
                       return (
-                        <td key={team.rosterId} className={`px-2 py-1.5 align-top ${posColor(pick.position)} border-l border-[#2a3040]`}>
+                        <td key={team.rosterId} className={`px-2 py-1.5 align-top ${posBoxOn(pick.position)} border-l border-[#2a3040]`}>
                           <div className="text-[10px] font-bold text-white truncate max-w-[120px]">
                             {pick.playerName}
                           </div>
