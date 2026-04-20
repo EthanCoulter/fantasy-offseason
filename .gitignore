@@ -13,10 +13,23 @@
 
 # misc
 .DS_Store
+
+# Secrets — keep every .env flavor out of git so webhook URLs / API keys
+# can never be committed. The single tracked `.env` (CI=false only) stays;
+# anything else — .env.local, .env.production, .env.webhook — is ignored.
+.env.*
+!.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Defense-in-depth: never commit anything that looks like a secret dump.
+*.secret
+*.secrets
+secrets.*
+webhook.txt
+webhook-url.txt
 
 npm-debug.log*
 yarn-debug.log*
