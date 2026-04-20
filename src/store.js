@@ -206,6 +206,44 @@ export async function testDiscordWebhook() {
   }
 }
 
+// Commissioner-facing preview — fires the FULL trade-alert rendering (same
+// Schefter-style @everyone message real trades send) but with entirely fake
+// team/player/pick data. No real rosters, picks, trades, or keepers are
+// touched — this hits /api/discord-trade directly with a synthetic payload
+// so the commish can see exactly how the channel message will look before
+// the real thing goes out. Team names are prefixed "TEST —" so nobody
+// reading the channel mistakes it for an actual trade.
+export async function sendTestTradeAlert() {
+  try {
+    const payload = {
+      fromTeam: 'TEST — Example Team A',
+      toTeam: 'TEST — Example Team B',
+      fromAssets: [
+        { type: 'player', name: 'Test RB (fake)', position: 'RB' },
+        { type: 'pick', label: '2026 R2.05' },
+      ],
+      toAssets: [
+        { type: 'player', name: 'Test WR (fake)', position: 'WR' },
+        { type: 'pick', label: '2026 R1.08' },
+      ],
+    };
+    const resp = await fetch('/api/discord-trade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json().catch(() => ({}));
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      error: data.error,
+      detail: data.detail,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
 // Compute pick ownership for every (year, round, originalRoster) slot
 // by applying Sleeper's traded_picks first, then in-app accepted trades in order.
 function buildOwnership(teams, tradedPicks, inAppTrades) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import useStore, { clockSecondsForRound, YEARS, ROUNDS, testDiscordWebhook } from '../store';
+import useStore, { clockSecondsForRound, YEARS, ROUNDS, testDiscordWebhook, sendTestTradeAlert } from '../store';
 import { downloadCsv, buildDraftRecapCsv } from '../utils/csv';
 import { posPill, posBoxOn } from '../utils/posColors';
 
@@ -172,6 +172,32 @@ export default function DraftRoomPage() {
     }
   };
 
+  // Fires the full Schefter-style trade alert (identical formatting to a
+  // real accepted trade) using entirely fake team/player/pick data —
+  // nothing in the league state is mutated. Confirm first because this
+  // still pings @everyone in the channel.
+  const handlePreviewTradeAlert = async () => {
+    const ok = window.confirm(
+      'Send a TEST trade alert to the #trade-alerts channel?\n\n' +
+      '• Uses fake team/player/pick names (no real league data)\n' +
+      '• Will still ping @everyone in the channel\n' +
+      '• Lets you preview the exact formatting real trades will use'
+    );
+    if (!ok) return;
+    const r = await sendTestTradeAlert();
+    if (r.ok) {
+      alert('✅ Test trade alert sent — check the #trade-alerts channel.');
+    } else {
+      const msg = [
+        '❌ Test trade alert failed.',
+        r.status ? `HTTP ${r.status}` : null,
+        r.error,
+        r.detail,
+      ].filter(Boolean).join('\n\n');
+      alert(msg);
+    }
+  };
+
   const handleDownloadCsv = () => {
     const rows = buildDraftRecapCsv({ teams, draftState, draftOrder });
     if (rows.length <= 1) {
@@ -264,6 +290,11 @@ export default function DraftRoomPage() {
             onClick={handleTestWebhook}
             className="px-3 py-1.5 text-xs font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/40 rounded-xl hover:bg-purple-500/25 transition-colors"
           >🧪 Test Discord</button>
+          <button
+            onClick={handlePreviewTradeAlert}
+            className="px-3 py-1.5 text-xs font-semibold bg-[#ff6b35]/15 text-[#ff6b35] border border-[#ff6b35]/40 rounded-xl hover:bg-[#ff6b35]/25 transition-colors"
+            title="Sends a fake trade alert with the real formatting so you can preview exactly how Discord will render it. Uses test names — no real rosters touched."
+          >🚨 Preview Trade Alert</button>
           <button
             onClick={() => setConfirmingReset(true)}
             className="px-3 py-1.5 text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30 rounded-xl hover:bg-red-500/20 transition-colors"
