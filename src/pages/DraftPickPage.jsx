@@ -347,14 +347,14 @@ export default function DraftPickPage() {
       )}
 
       <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
+        <div className="min-w-0 flex-1">
           <h1
-            className="text-2xl font-black text-white"
+            className="text-xl sm:text-2xl font-black text-white truncate"
             style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
           >
             MAKE YOUR PICK
           </h1>
-          <p className="text-[#8a95a8] text-sm">
+          <p className="text-[#8a95a8] text-xs sm:text-sm truncate">
             {myTeam?.teamName}
             {draftState.isTrial && <span className="ml-2 text-yellow-400 font-semibold">🧪 TRIAL</span>}
           </p>
@@ -516,20 +516,22 @@ export default function DraftPickPage() {
 
       {/* Player list */}
       <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-[#2a3040] flex items-center justify-between flex-wrap gap-2">
-          <h2 className="font-semibold text-white text-sm">Available Players</h2>
-          <div className="flex gap-1.5 flex-wrap">
+        <div className="px-4 sm:px-5 py-3 border-b border-[#2a3040] space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold text-white text-sm">Available Players</h2>
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search..."
-              className="bg-[#1a1f27] border border-[#2a3040] rounded-lg px-3 py-1 text-xs text-white focus:outline-none focus:border-[#00e5a0]"
+              className="bg-[#1a1f27] border border-[#2a3040] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#00e5a0] w-32 sm:w-48"
             />
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
             {['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DL', 'LB', 'DB'].map(p => (
               <button
                 key={p}
                 onClick={() => setPosFilter(p)}
-                className={`px-2 py-1 rounded text-[10px] font-semibold ${
+                className={`px-2.5 py-1 rounded text-[11px] font-semibold ${
                   posFilter === p ? 'bg-[#00e5a0] text-black' : 'bg-[#1a1f27] text-[#8a95a8]'
                 }`}
               >{p}</button>
@@ -545,7 +547,7 @@ export default function DraftPickPage() {
               <button
                 key={p.id}
                 onClick={() => setSelected(p)}
-                className={`w-full px-5 py-2 flex items-center gap-3 text-left transition-colors ${
+                className={`w-full px-4 sm:px-5 py-2.5 flex items-center gap-3 text-left transition-colors ${
                   isSel ? 'bg-[#00e5a0]/15' : 'hover:bg-[#1a1f27]'
                 }`}
               >

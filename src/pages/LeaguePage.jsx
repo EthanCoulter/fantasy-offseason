@@ -31,11 +31,11 @@ export default function LeaguePage() {
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
             LEAGUE OVERVIEW
           </h1>
-          <p className="text-[#8a95a8] text-sm">All 12 teams — keepers, picks, and draft positions</p>
+          <p className="text-[#8a95a8] text-xs sm:text-sm">All 12 teams — keepers, picks, and draft positions</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -68,7 +68,7 @@ export default function LeaguePage() {
             >
               {/* Row header */}
               <div
-                className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-[#1a1f27] transition-colors"
+                className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 cursor-pointer hover:bg-[#1a1f27] transition-colors"
                 onClick={() => setExpanded(isExpanded ? null : team.rosterId)}
               >
                 {team.avatar ? (
@@ -113,7 +113,7 @@ export default function LeaguePage() {
 
               {/* Expanded detail */}
               {isExpanded && (
-                <div className="border-t border-[#2a3040] px-5 py-4 grid grid-cols-1 md:grid-cols-3 gap-6 bg-[#0a0c10]/50">
+                <div className="border-t border-[#2a3040] px-4 sm:px-5 py-4 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 bg-[#0a0c10]/50">
                   {/* Players */}
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wider text-[#8a95a8] mb-2">Keepers ({assets.players?.length || 0})</div>

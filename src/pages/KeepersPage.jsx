@@ -104,10 +104,10 @@ export default function KeepersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
+        <h1 className="text-xl sm:text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
           SELECT KEEPERS
         </h1>
-        <p className="text-[#8a95a8] text-sm">
+        <p className="text-[#8a95a8] text-xs sm:text-sm">
           Choose up to {maxOffense} offensive and {maxDefense} defensive player{maxDefense !== 1 ? 's' : ''} to keep
           {(bonusOffense > 0 || bonusDefense > 0) && (
             <span className="text-[#4da6ff]">
@@ -154,7 +154,7 @@ export default function KeepersPage() {
               return (
                 <div
                   key={i}
-                  className={`flex-1 min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center transition-all ${
+                  className={`flex-1 basis-16 min-w-[56px] sm:min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center transition-all ${
                     isBurned
                       ? 'border-[#ff6b35]/40 bg-[#ff6b35]/5 border-dashed'
                       : keeperId
@@ -183,7 +183,7 @@ export default function KeepersPage() {
               return (
                 <div
                   key={`bonus-off-${id}`}
-                  className="flex-1 min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center border-[#4da6ff]/50 bg-[#4da6ff]/5"
+                  className="flex-1 basis-16 min-w-[56px] sm:min-w-[80px] h-14 rounded-xl border-2 flex flex-col items-center justify-center text-center border-[#4da6ff]/50 bg-[#4da6ff]/5"
                   title="Bonus keeper — locked from trade"
                 >
                   {p ? (

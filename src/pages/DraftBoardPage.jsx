@@ -135,11 +135,11 @@ export default function DraftBoardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
             DRAFT BOARD
           </h1>
-          <p className="text-[#8a95a8] text-sm">Every pick · every round · {anyAssigned ? 'traded picks highlighted' : 'awaiting draft positions'}</p>
+          <p className="text-[#8a95a8] text-xs sm:text-sm">Every pick · every round · {anyAssigned ? 'traded picks highlighted' : 'awaiting draft positions'}</p>
         </div>
         <div className="flex gap-1 p-1 bg-[#111418] rounded-xl border border-[#2a3040]">
           {YEARS.map(y => (
@@ -181,7 +181,22 @@ export default function DraftBoardPage() {
           </div>
 
           {isCurrentYear ? (
-          <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
+          <>
+          {/* Mobile view (< md): round-grouped grid — no horizontal scroll.
+              Much friendlier on phones than a 12-col table. */}
+          <div className="md:hidden">
+            <FutureYearRoundView
+              teams={teams}
+              teamAssets={teamAssets}
+              selectedYear={selectedYear}
+              teamColors={teamColors}
+              getTeamShort={getTeamShort}
+              getTeamName={getTeamName}
+            />
+          </div>
+          {/* Tablet+ view: full 12-column board. Still horizontally scrollable
+              if the window is narrow, but md: users get the proper grid. */}
+          <div className="hidden md:block bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -190,7 +205,7 @@ export default function DraftBoardPage() {
                       Rd
                     </th>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map(pos => (
-                      <th key={pos} className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-[#8a95a8] min-w-[110px]">
+                      <th key={pos} className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-[#8a95a8] min-w-[88px]">
                         <div>Pick {pos}</div>
                         <div className="text-[#4a5568] font-normal truncate" style={{fontSize:'9px'}}>
                           {rankToTeam[pos] ? getTeamShort(rankToTeam[pos]) : '—'}
@@ -251,6 +266,7 @@ export default function DraftBoardPage() {
               </table>
             </div>
           </div>
+          </>
           ) : (
             <FutureYearRoundView
               teams={teams}
@@ -278,18 +294,23 @@ export default function DraftBoardPage() {
                     a.originalRosterId - b.originalRosterId
                   );
                 return (
-                  <div key={team.rosterId} className="flex items-center gap-3 px-5 py-3">
-                    <div className="w-8 h-8 rounded-lg bg-[#1a1f27] border border-[#2a3040] flex items-center justify-center shrink-0">
-                      {team.avatar
-                        ? <img src={team.avatar} alt="" className="w-full h-full object-cover rounded-lg" />
-                        : <span className="text-xs font-bold text-[#00e5a0]">{team.displayName[0]?.toUpperCase()}</span>
-                      }
+                  <div key={team.rosterId} className="px-3 sm:px-5 py-3">
+                    {/* Top row: avatar, team, count. Always one line. */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[#1a1f27] border border-[#2a3040] flex items-center justify-center shrink-0">
+                        {team.avatar
+                          ? <img src={team.avatar} alt="" className="w-full h-full object-cover rounded-lg" />
+                          : <span className="text-xs font-bold text-[#00e5a0]">{team.displayName[0]?.toUpperCase()}</span>
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-white truncate">{team.teamName}</div>
+                        <div className="text-[10px] text-[#4a5568]">Rank {draftPositions[team.rosterId] || '—'}</div>
+                      </div>
+                      <span className="text-xs text-[#8a95a8] shrink-0">{picks.length} pick{picks.length === 1 ? '' : 's'}</span>
                     </div>
-                    <div className="w-40 shrink-0">
-                      <div className="text-sm font-medium text-white truncate">{team.teamName}</div>
-                      <div className="text-[10px] text-[#4a5568]">Rank {draftPositions[team.rosterId] || '—'}</div>
-                    </div>
-                    <div className="flex-1 flex flex-wrap gap-1">
+                    {/* Pick pills wrap underneath — no fixed column width to fight with the viewport. */}
+                    <div className="flex flex-wrap gap-1 mt-2 pl-11">
                       {picks.length === 0 ? (
                         <span className="text-xs text-[#4a5568]">No picks</span>
                       ) : (
@@ -314,7 +335,6 @@ export default function DraftBoardPage() {
                         })
                       )}
                     </div>
-                    <span className="text-xs text-[#8a95a8] w-10 text-right shrink-0">{picks.length}</span>
                   </div>
                 );
               })}

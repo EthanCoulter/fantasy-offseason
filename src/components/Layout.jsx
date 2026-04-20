@@ -192,8 +192,12 @@ export default function Layout() {
         </div>
       )}
 
-      <main className="flex-1 overflow-auto">
-        <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8 mt-14 md:mt-0">
+      {/* `min-w-0` is load-bearing here: without it, a flex child refuses to
+          shrink below its intrinsic content width, which is what causes the
+          whole page to overflow horizontally on mobile when one card is
+          a pixel too wide. */}
+      <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">
+        <div className="max-w-6xl mx-auto px-3 sm:px-4 md:px-8 py-5 md:py-8 mt-14 md:mt-0">
           {renderPage()}
         </div>
       </main>

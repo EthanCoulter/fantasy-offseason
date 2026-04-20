@@ -238,10 +238,10 @@ export default function TradePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
           <h1
-            className="text-2xl font-black text-white"
+            className="text-xl sm:text-2xl font-black text-white"
             style={{
               fontFamily: "Bebas Neue, sans-serif",
               letterSpacing: "0.05em",
@@ -249,7 +249,7 @@ export default function TradePage() {
           >
             TRADE CENTER
           </h1>
-          <p className="text-[#8a95a8] text-sm">
+          <p className="text-[#8a95a8] text-xs sm:text-sm">
             Only keepers tradable · Players + 2026 picks must balance in total
             count · 2027+ picks must balance per year · Trading players for
             picks burns keeper slots
@@ -300,7 +300,7 @@ export default function TradePage() {
 
       {activeTab === "propose" ? (
         <div className="space-y-4">
-          <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-5">
+          <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-4 sm:p-5">
             <label className="block text-xs font-semibold uppercase tracking-wider text-[#8a95a8] mb-2">
               Trade With
             </label>
@@ -323,7 +323,7 @@ export default function TradePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-5">
+            <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-4 sm:p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-white text-sm">You Send</h3>
                 <span className="text-xs text-[#00e5a0]">
@@ -350,7 +350,7 @@ export default function TradePage() {
               )}
             </div>
 
-            <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-5">
+            <div className="bg-[#111418] border border-[#2a3040] rounded-2xl p-4 sm:p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-white text-sm">
                   You Receive
@@ -504,7 +504,7 @@ export default function TradePage() {
               return (
                 <div
                   key={trade.id}
-                  className={`bg-[#111418] border rounded-2xl p-5 ${isIncoming ? "border-yellow-400/30" : "border-[#2a3040]"}`}
+                  className={`bg-[#111418] border rounded-2xl p-4 sm:p-5 ${isIncoming ? "border-yellow-400/30" : "border-[#2a3040]"}`}
                 >
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex items-center gap-1.5">

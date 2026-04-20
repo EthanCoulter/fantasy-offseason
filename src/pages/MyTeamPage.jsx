@@ -33,24 +33,24 @@ export default function MyTeamPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4">
         {myTeam.avatar ? (
-          <img src={myTeam.avatar} alt="" className="w-14 h-14 rounded-2xl object-cover border border-[#2a3040]" />
+          <img src={myTeam.avatar} alt="" className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover border border-[#2a3040] shrink-0" />
         ) : (
-          <div className="w-14 h-14 rounded-2xl bg-[#1a1f27] border border-[#2a3040] flex items-center justify-center">
-            <span className="text-2xl font-black text-[#00e5a0]">{myTeam.displayName[0]?.toUpperCase()}</span>
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#1a1f27] border border-[#2a3040] flex items-center justify-center shrink-0">
+            <span className="text-xl sm:text-2xl font-black text-[#00e5a0]">{myTeam.displayName[0]?.toUpperCase()}</span>
           </div>
         )}
-        <div>
-          <h1 className="text-2xl font-black text-white" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-xl sm:text-2xl font-black text-white truncate" style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}>
             {myTeam.teamName}
           </h1>
-          <p className="text-[#8a95a8] text-sm">{myTeam.displayName} · {myTeam.wins}W–{myTeam.losses}L</p>
+          <p className="text-[#8a95a8] text-xs sm:text-sm truncate">{myTeam.displayName} · {myTeam.wins}W–{myTeam.losses}L</p>
         </div>
         {draftPos && (
-          <div className="ml-auto text-center">
-            <div className="text-3xl font-black text-[#00e5a0]" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>{draftPos}</div>
-            <div className="text-xs text-[#8a95a8] uppercase tracking-wider">Draft Pos</div>
+          <div className="text-center shrink-0">
+            <div className="text-2xl sm:text-3xl font-black text-[#00e5a0] leading-none" style={{ fontFamily: 'Bebas Neue, sans-serif' }}>{draftPos}</div>
+            <div className="text-[10px] sm:text-xs text-[#8a95a8] uppercase tracking-wider">Draft Pos</div>
           </div>
         )}
       </div>
@@ -89,7 +89,7 @@ export default function MyTeamPage() {
       </div>
 
       <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#2a3040]">
+        <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-[#2a3040]">
           <h2 className="font-semibold text-white">Keeper Players</h2>
         </div>
         {!assets.players || assets.players.length === 0 ? (
@@ -99,7 +99,7 @@ export default function MyTeamPage() {
         ) : (
           <div className="divide-y divide-[#2a3040]">
             {assets.players.map(player => (
-              <div key={player.id} className="flex items-center gap-4 px-5 py-3">
+              <div key={player.id} className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3">
                 <span className={`text-xs px-2 py-0.5 rounded border font-semibold w-10 text-center ${posColor(player.position)}`}>
                   {player.position}
                 </span>
@@ -115,7 +115,7 @@ export default function MyTeamPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#2a3040] flex items-center justify-between">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-[#2a3040] flex items-center justify-between">
             <h2 className="font-semibold text-white">{YEAR} Draft Picks</h2>
             <span className="text-xs text-[#4da6ff] font-semibold">{thisYearPicks.length} picks</span>
           </div>
@@ -126,7 +126,7 @@ export default function MyTeamPage() {
           ) : (
             <div className="divide-y divide-[#2a3040]">
               {thisYearPicks.sort((a, b) => a.round - b.round).map(pick => (
-                <div key={pick.id} className="flex items-center gap-3 px-5 py-2.5">
+                <div key={pick.id} className="flex items-center gap-3 px-4 sm:px-5 py-2.5">
                   <span className="text-xs px-2 py-0.5 rounded bg-[#4da6ff]/10 text-[#4da6ff] border border-[#4da6ff]/20 font-semibold">
                     R{pick.round}
                   </span>
@@ -141,7 +141,7 @@ export default function MyTeamPage() {
         </div>
 
         <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-[#2a3040] flex items-center justify-between">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-[#2a3040] flex items-center justify-between">
             <h2 className="font-semibold text-white">{YEAR + 1} Draft Picks</h2>
             <span className="text-xs text-[#4da6ff] font-semibold">{nextYearPicks.length} picks</span>
           </div>
@@ -152,7 +152,7 @@ export default function MyTeamPage() {
           ) : (
             <div className="divide-y divide-[#2a3040]">
               {nextYearPicks.sort((a, b) => a.round - b.round).map(pick => (
-                <div key={pick.id} className="flex items-center gap-3 px-5 py-2.5">
+                <div key={pick.id} className="flex items-center gap-3 px-4 sm:px-5 py-2.5">
                   <span className="text-xs px-2 py-0.5 rounded bg-[#4da6ff]/10 text-[#4da6ff] border border-[#4da6ff]/20 font-semibold">
                     R{pick.round}
                   </span>
