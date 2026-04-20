@@ -181,22 +181,12 @@ export default function DraftBoardPage() {
           </div>
 
           {isCurrentYear ? (
-          <>
-          {/* Mobile view (< md): round-grouped grid — no horizontal scroll.
-              Much friendlier on phones than a 12-col table. */}
-          <div className="md:hidden">
-            <FutureYearRoundView
-              teams={teams}
-              teamAssets={teamAssets}
-              selectedYear={selectedYear}
-              teamColors={teamColors}
-              getTeamShort={getTeamShort}
-              getTeamName={getTeamName}
-            />
-          </div>
-          {/* Tablet+ view: full 12-column board. Still horizontally scrollable
-              if the window is narrow, but md: users get the proper grid. */}
-          <div className="hidden md:block bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
+          <div className="bg-[#111418] border border-[#2a3040] rounded-2xl overflow-hidden">
+            {/* Mobile hint: the table scrolls horizontally — important
+                so users know to swipe instead of pinch-zooming. */}
+            <div className="md:hidden px-4 py-2 text-[11px] text-[#8a95a8] border-b border-[#2a3040] bg-[#0a0c10]/50">
+              ← swipe the board sideways to see all 12 picks →
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -205,7 +195,7 @@ export default function DraftBoardPage() {
                       Rd
                     </th>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map(pos => (
-                      <th key={pos} className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-[#8a95a8] min-w-[88px]">
+                      <th key={pos} className="px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-[#8a95a8] min-w-[110px]">
                         <div>Pick {pos}</div>
                         <div className="text-[#4a5568] font-normal truncate" style={{fontSize:'9px'}}>
                           {rankToTeam[pos] ? getTeamShort(rankToTeam[pos]) : '—'}
@@ -266,7 +256,6 @@ export default function DraftBoardPage() {
               </table>
             </div>
           </div>
-          </>
           ) : (
             <FutureYearRoundView
               teams={teams}
