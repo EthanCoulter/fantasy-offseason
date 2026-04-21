@@ -91,9 +91,9 @@ export default async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content,
-        // Consistent bot identity — users see "Fantasy League Alerts",
+        // Consistent bot identity — users see "Jay Scheftinderjeet",
         // not the raw webhook default name.
-        username: 'Fantasy League Alerts',
+        username: 'Jay Scheftinderjeet',
         // SUPPRESS_EMBEDS = 1 << 2. Blocks Discord from unfurling any URL
         // that might slip through (though sanitize() already stripped them).
         flags: 1 << 2,
