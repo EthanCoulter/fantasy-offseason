@@ -98,6 +98,13 @@ export function buildLeagueRosterCsv({
     .filter(y => y !== currentYear)
     .sort((a, b) => a - b);
 
+  // Original-owner lookup for pick-provenance labels. A team that holds
+  // multiple picks in the same round (via trade) needs each one
+  // individually identifiable — for current-year picks the slot does
+  // this, for future-year picks we attach the original owner.
+  const teamNameByRoster = new Map();
+  teams.forEach(t => teamNameByRoster.set(t.rosterId, t.teamName || t.displayName || `Roster ${t.rosterId}`));
+
   const header = [
     'Team', 'Manager', 'Record',
     'Keepers',
@@ -115,7 +122,10 @@ export function buildLeagueRosterCsv({
     // Current-year picks still sitting on the team (i.e. not yet spent in
     // the live draft). We subtract what's already in the draft log so a
     // pick that's already been used doesn't double-appear in the
-    // "unused" column AND the "drafted" column.
+    // "unused" column AND the "drafted" column. `assets.picks` has one
+    // entry per owned pick, so a team holding two picks in the same
+    // round (e.g. 2.03 and 2.09 via trade) gets two separate entries —
+    // both show up distinctly thanks to the unique slot in the label.
     const usedPickKeys = new Set(
       picks
         .filter(p => p.rosterId === team.rosterId)
@@ -127,19 +137,32 @@ export function buildLeagueRosterCsv({
       .sort((a, b) => a.round - b.round || (a.position || 99) - (b.position || 99))
       .map(p => p.label)
       .join('; ');
+    // Every player the team drafted, period — one entry per pick. If a
+    // team had multiple picks in a single round (which happens any time
+    // they trade into extra picks), every player they selected is
+    // listed individually. Sorted by pickIndex so the order mirrors the
+    // actual draft sequence.
     const drafted = picks
       .filter(p => p.rosterId === team.rosterId)
       .sort((a, b) => a.pickIndex - b.pickIndex)
       .map(p => `R${p.round}.${String(p.slot).padStart(2, '0')} ${p.playerName} (${p.position})`)
       .join('; ');
-    // One cell per future year, e.g. "2027 R1; 2027 R3; 2027 R7". Grouping
-    // by year means a trade that swaps 2027 R2 for 2028 R4 shows up in
-    // the right column, not smeared across them.
+    // One cell per future year. Each pick is listed separately so a team
+    // owning two 2027 R3 picks gets two distinct entries. Future-year
+    // labels don't carry slot info (future draft order hasn't been set
+    // yet), so picks that were traded in from elsewhere get a "(from
+    // OtherTeam)" suffix to make the pair distinguishable. Picks the
+    // team still owns from its own original allotment stay plain.
     const futureCells = futureYears.map(year =>
       (assets.picks || [])
         .filter(p => p.year === year)
-        .sort((a, b) => a.round - b.round)
-        .map(p => p.label)
+        .sort((a, b) => a.round - b.round || (a.originalRosterId ?? 0) - (b.originalRosterId ?? 0))
+        .map(p => {
+          const isTradedIn = p.originalRosterId != null && p.originalRosterId !== team.rosterId;
+          if (!isTradedIn) return p.label;
+          const fromName = teamNameByRoster.get(p.originalRosterId) || `Roster ${p.originalRosterId}`;
+          return `${p.label} (from ${fromName})`;
+        })
         .join('; ')
     );
 
