@@ -1,13 +1,20 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useStore from '../store';
 import { posPill, posBox } from '../utils/posColors';
 
 // Per-manager ordered draft queue. If the clock runs out on this manager's
 // pick, the auto-picker walks this list in order and takes the first
 // player who is still available (not yet drafted, not somebody's keeper).
-// Queue state is stored raw — drafted / kept players are hidden from the
-// "on-queue" view but NOT deleted from storage, so the manager's pre-draft
-// ranking survives picks and keepers without them having to re-rank.
+//
+// Two liveness rules enforced on this page:
+//   1. Anyone who is already a keeper OR has already been drafted is
+//      completely hidden from the "add to queue" search pool — they're
+//      not valid options, period.
+//   2. If a player currently sitting in this manager's queue gets
+//      drafted or kept elsewhere, they're pruned from the stored queue
+//      automatically (the realtime subscription re-hydrates the store,
+//      the effect below detects the stale entries, and upserts a cleaned
+//      list to Supabase). No manual refresh needed.
 export default function DraftQueuePage() {
   const {
     currentUser,
@@ -32,15 +39,31 @@ export default function DraftQueuePage() {
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
 
-  // Anyone already drafted (live picks) or already a keeper is "taken".
-  // We gray these out in the queue view so the manager can see at a
-  // glance which of their ranked players are still reachable.
+  // Anyone already drafted (live picks) or already a keeper is "taken"
+  // and must never be a valid queue target. This set drives both the
+  // search pool filter and the auto-prune effect below.
   const takenIds = useMemo(() => {
     const s = new Set();
     (draftState?.picks || []).forEach(p => s.add(p.playerId));
     Object.values(keepers || {}).forEach(arr => (arr || []).forEach(id => s.add(id)));
     return s;
   }, [draftState?.picks, keepers]);
+
+  // When a player who was in the queue gets drafted or kept (via any
+  // device — this page re-renders off the realtime-hydrated store), the
+  // effect drops them from storage so the queue stays a live view of
+  // reachable targets. A ref guards against re-firing the same upsert
+  // for the same cleaned list, which would thrash Supabase.
+  const lastPrunedRef = useRef('');
+  useEffect(() => {
+    if (!myRosterId || myQueue.length === 0) return;
+    const cleaned = myQueue.filter(id => !takenIds.has(id));
+    if (cleaned.length === myQueue.length) return; // nothing to prune
+    const signature = cleaned.join(',');
+    if (lastPrunedRef.current === signature) return;
+    lastPrunedRef.current = signature;
+    setDraftQueue(myRosterId, cleaned);
+  }, [myQueue, takenIds, myRosterId, setDraftQueue]);
 
   const queueSet = useMemo(() => new Set(myQueue), [myQueue]);
 
@@ -57,13 +80,20 @@ export default function DraftQueuePage() {
     return null;
   }, [myQueue, takenIds, playerDB]);
 
-  // Search pool = every playable player not already in the queue, filtered
-  // by search string + position chip. Sorted by Sleeper ADP.
+  // Search pool = every playable player who is (a) not already in this
+  // manager's queue, (b) not already a keeper on any roster, and
+  // (c) not already drafted. Kept + drafted players are filtered out
+  // entirely — they're not valid options so we don't show them as
+  // disabled rows either. Sorted by Sleeper ADP.
   const searchResults = useMemo(() => {
     const q = search.toLowerCase().trim();
     return Object.entries(playerDB || {})
       .filter(([id, p]) =>
-        p && p.position && p.status !== 'Retired' && !queueSet.has(id)
+        p &&
+        p.position &&
+        p.status !== 'Retired' &&
+        !queueSet.has(id) &&
+        !takenIds.has(id)
       )
       .map(([id, p]) => ({
         id,
@@ -71,7 +101,6 @@ export default function DraftQueuePage() {
         position: p.position,
         team: p.team,
         adp: p.search_rank && p.search_rank < 9999 ? p.search_rank : null,
-        taken: takenIds.has(id),
       }))
       .filter(p => posFilter === 'ALL' || p.position === posFilter)
       .filter(p => !q || p.name.toLowerCase().includes(q) || (p.team || '').toLowerCase().includes(q))
@@ -122,9 +151,9 @@ export default function DraftQueuePage() {
         <div className="font-semibold mb-1">🤖 Auto-pick fallback</div>
         <div className="text-[#4da6ff]/80">
           Your queue is private to your team. When your pick clock hits zero we walk the
-          list top-to-bottom and take the first player that hasn't been drafted or kept by
-          anyone else. Players already gone are shown dimmed — you can leave them in the
-          list as insurance; they'll simply be skipped.
+          list top-to-bottom and take the first available player. Players who get drafted
+          or kept by anyone are removed from your queue automatically, so your top entry
+          is always the one you'd actually get.
         </div>
       </div>
 
@@ -199,14 +228,11 @@ export default function DraftQueuePage() {
                 : `Unknown (${pid})`;
               const position = p?.position || 'UNK';
               const team = p?.team || 'FA';
-              const isTaken = takenIds.has(pid);
 
               return (
                 <div
                   key={pid}
-                  className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 ${
-                    isTaken ? 'bg-[#0a0c10] opacity-40' : posBox(position)
-                  }`}
+                  className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 ${posBox(position)}`}
                 >
                   <span
                     className="text-xs font-bold text-[#00e5a0] w-6 text-center shrink-0"
@@ -241,14 +267,7 @@ export default function DraftQueuePage() {
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-white truncate">{name}</div>
-                    <div className="text-[10px] text-[#8a95a8]">
-                      {team}
-                      {isTaken && (
-                        <span className="ml-2 text-red-400 font-semibold">
-                          · already drafted/kept · will be skipped
-                        </span>
-                      )}
-                    </div>
+                    <div className="text-[10px] text-[#8a95a8]">{team}</div>
                   </div>
                   <button
                     onClick={() => handleRemove(pid)}
@@ -303,13 +322,8 @@ export default function DraftQueuePage() {
             searchResults.map(p => (
               <button
                 key={p.id}
-                onClick={() => !p.taken && handleAdd(p.id)}
-                disabled={p.taken}
-                className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors border ${
-                  p.taken
-                    ? 'bg-[#0a0c10] opacity-40 cursor-not-allowed border-[#2a3040]'
-                    : `${posBox(p.position)} hover:brightness-125 cursor-pointer`
-                }`}
+                onClick={() => handleAdd(p.id)}
+                className={`w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors border ${posBox(p.position)} hover:brightness-125 cursor-pointer`}
               >
                 <span className="text-[10px] font-bold text-[#4a5568] w-10 text-right shrink-0">
                   #{p.adp || '—'}
@@ -325,14 +339,8 @@ export default function DraftQueuePage() {
                 <span className="text-xs text-[#8a95a8] w-10 text-right shrink-0">
                   {p.team || 'FA'}
                 </span>
-                <span
-                  className={`text-[11px] font-bold px-2 py-0.5 rounded shrink-0 ${
-                    p.taken
-                      ? 'bg-red-500/20 text-red-400'
-                      : 'bg-[#00e5a0]/20 text-[#00e5a0]'
-                  }`}
-                >
-                  {p.taken ? 'TAKEN' : '+ ADD'}
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded shrink-0 bg-[#00e5a0]/20 text-[#00e5a0]">
+                  + ADD
                 </span>
               </button>
             ))
