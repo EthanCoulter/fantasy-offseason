@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useStore, { clockSecondsForRound, YEARS, ROUNDS, testDiscordWebhook, sendTestTradeAlert } from '../store';
-import { downloadCsv, buildDraftRecapCsv } from '../utils/csv';
+import { downloadCsv, buildDraftRecapCsv, buildLeagueRosterCsv } from '../utils/csv';
 import { posPill, posBoxOn } from '../utils/posColors';
 
 const DRAFT_SOUND_URL = '/draft-pick.mp3';
@@ -15,6 +15,7 @@ export default function DraftRoomPage() {
     draftPositions,
     playerDB,
     keepers,
+    teamAssets,
     draftState,
     draftOrder,
     setDraftMode,
@@ -208,6 +209,20 @@ export default function DraftRoomPage() {
     downloadCsv(`${YEARS[0]}-draft-recap${suffix}.csv`, rows);
   };
 
+  // Full final-roster export — keepers + drafted players + remaining
+  // current-year picks + every future-year pick, one column per year.
+  // This is what the commissioner wants the instant the draft ends so
+  // the league sheet can be updated in one paste.
+  const handleDownloadRostersCsv = () => {
+    const rows = buildLeagueRosterCsv({
+      teams, teamAssets, playerDB, draftState,
+      currentYear: YEARS[0],
+      years: YEARS,
+    });
+    const suffix = draftState.isTrial ? '-TRIAL' : '';
+    downloadCsv(`league-rosters-${YEARS[0]}${suffix}.csv`, rows);
+  };
+
   const handleResetConfirmed = async () => {
     setConfirmingReset(false);
     await resetDraft();
@@ -285,7 +300,13 @@ export default function DraftRoomPage() {
           <button
             onClick={handleDownloadCsv}
             className="px-3 py-1.5 text-xs font-semibold bg-[#4da6ff]/20 text-[#4da6ff] border border-[#4da6ff]/40 rounded-xl hover:bg-[#4da6ff]/30 transition-colors"
-          >⬇ Download CSV</button>
+            title="Pick-by-pick draft recap — one row per team, one column per round"
+          >⬇ Draft Recap CSV</button>
+          <button
+            onClick={handleDownloadRostersCsv}
+            className="px-3 py-1.5 text-xs font-semibold bg-[#00e5a0]/20 text-[#00e5a0] border border-[#00e5a0]/40 rounded-xl hover:bg-[#00e5a0]/30 transition-colors"
+            title="Final roster export — keepers + drafted players + remaining current-year picks + future-year picks (e.g. 2027), one column per year. Ready to paste end-of-draft."
+          >⬇ Rosters CSV</button>
           <button
             onClick={handleTestWebhook}
             className="px-3 py-1.5 text-xs font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/40 rounded-xl hover:bg-purple-500/25 transition-colors"
