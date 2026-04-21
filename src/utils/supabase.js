@@ -15,6 +15,7 @@ export const TABLES = {
   trades: 'trades',
   mockDrafts: 'mock_drafts',
   draftState: 'draft_state',
+  draftQueues: 'draft_queues',
 };
 
 // One-time setup for the draft table (run in Supabase SQL editor):
@@ -35,3 +36,17 @@ export const TABLES = {
 //   ALTER TABLE draft_state ENABLE ROW LEVEL SECURITY;
 //   CREATE POLICY "draft_state read"  ON draft_state FOR SELECT USING (true);
 //   CREATE POLICY "draft_state write" ON draft_state FOR UPDATE USING (true);
+//
+// One-time setup for the draft-queue table (run in Supabase SQL editor):
+//
+//   CREATE TABLE IF NOT EXISTS draft_queues (
+//     roster_id   INT PRIMARY KEY,
+//     player_ids  JSONB DEFAULT '[]'::jsonb,
+//     updated_at  TIMESTAMPTZ DEFAULT NOW()
+//   );
+//   ALTER PUBLICATION supabase_realtime ADD TABLE draft_queues;
+//   ALTER TABLE draft_queues ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "draft_queues read"   ON draft_queues FOR SELECT USING (true);
+//   CREATE POLICY "draft_queues insert" ON draft_queues FOR INSERT WITH CHECK (true);
+//   CREATE POLICY "draft_queues update" ON draft_queues FOR UPDATE USING (true);
+//   CREATE POLICY "draft_queues delete" ON draft_queues FOR DELETE USING (true);

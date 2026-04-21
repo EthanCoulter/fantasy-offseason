@@ -9,6 +9,7 @@ import DraftBoardPage from '../pages/DraftBoardPage';
 import MockDraftPage from '../pages/MockDraftPage';
 import DraftRoomPage from '../pages/DraftRoomPage';
 import DraftPickPage from '../pages/DraftPickPage';
+import DraftQueuePage from '../pages/DraftQueuePage';
 
 const NAV_MANAGER_BASE = [
   { id: 'team', label: 'My Team', icon: '🏟️' },
@@ -16,6 +17,7 @@ const NAV_MANAGER_BASE = [
   { id: 'trades', label: 'Trades', icon: '🔄' },
   { id: 'draftboard', label: 'Draft Board', icon: '📊' },
   { id: 'mockdraft', label: 'Mock Draft', icon: '🎯' },
+  { id: 'queue', label: 'Draft Queue', icon: '📜' },
   { id: 'league', label: 'League', icon: '📋' },
 ];
 
@@ -65,6 +67,7 @@ export default function Layout() {
       case 'mockdraft': return <MockDraftPage />;
       case 'draftroom': return <DraftRoomPage />;
       case 'draftpick': return <DraftPickPage />;
+      case 'queue': return <DraftQueuePage />;
       default: return <MyTeamPage />;
     }
   };

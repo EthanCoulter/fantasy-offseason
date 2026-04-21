@@ -433,6 +433,11 @@ const useStore = create((set, get) => ({
   teamAssets: {},
   draftState: EMPTY_DRAFT_STATE,
   draftOrder: [],
+  // Per-manager ordered queue of player IDs. Used as the auto-pick fallback
+  // when a manager times out on the clock — we walk their queue in order
+  // and pick the first player who hasn't already been drafted or kept.
+  // Map of rosterId (number) → ordered array of player ID strings.
+  draftQueues: {},
 
   setLeagueData: (teams, playerDB, tradedPicks) => {
     set({
@@ -471,13 +476,14 @@ const useStore = create((set, get) => ({
 
   hydrateFromSupabase: async () => {
     try {
-      const [r, k, sb, tr, md, ds] = await Promise.all([
+      const [r, k, sb, tr, md, ds, dq] = await Promise.all([
         supabase.from(TABLES.rankings).select('*'),
         supabase.from(TABLES.keepers).select('*'),
         supabase.from(TABLES.slotsBurned).select('*'),
         supabase.from(TABLES.trades).select('*').order('created_at', { ascending: false }),
         supabase.from(TABLES.mockDrafts).select('*'),
         supabase.from(TABLES.draftState).select('*').eq('id', 1).maybeSingle(),
+        supabase.from(TABLES.draftQueues).select('*'),
       ]);
 
       const draftPositions = {};
@@ -528,7 +534,12 @@ const useStore = create((set, get) => ({
           }
         : EMPTY_DRAFT_STATE;
 
-      set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, draftState, supabaseLoaded: true });
+      const draftQueues = {};
+      (dq?.data || []).forEach(row => {
+        draftQueues[row.roster_id] = row.player_ids || [];
+      });
+
+      set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, draftState, draftQueues, supabaseLoaded: true });
       get().rebuildAssets();
     } catch (e) {
       console.error('Supabase hydration failed:', e);
@@ -545,6 +556,7 @@ const useStore = create((set, get) => ({
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.trades }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.mockDrafts }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.draftState }, () => get().hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.draftQueues }, () => get().hydrateFromSupabase())
       .subscribe();
     return () => supabase.removeChannel(channel);
   },
@@ -821,6 +833,57 @@ const useStore = create((set, get) => ({
   getTeam: (rosterId) => get().teams.find(t => t.rosterId === rosterId),
   getAssets: (rosterId) => get().teamAssets[rosterId] || { players: [], picks: [] },
 
+  // ---------- DRAFT QUEUE ----------
+  //
+  // The queue is a manager's private ordered wishlist of players. If the
+  // clock runs out (or the commissioner triggers auto-pick) we walk this
+  // list in order and grab the first player who is still actually
+  // available — not yet drafted, not already somebody's keeper. The raw
+  // list is preserved across picks/keepers so the manager can reorder it
+  // once up-front and not have to re-rank between picks; filtering is
+  // done at pick time, not at storage time.
+
+  // Replace the full queue for a roster (used for drag-and-reorder UI).
+  setDraftQueue: async (rosterId, playerIds) => {
+    const ids = Array.from(new Set((playerIds || []).filter(Boolean)));
+    set(s => ({ draftQueues: { ...s.draftQueues, [rosterId]: ids } }));
+    await supabase.from(TABLES.draftQueues).upsert({
+      roster_id: rosterId,
+      player_ids: ids,
+      updated_at: new Date().toISOString(),
+    });
+  },
+
+  // Append a player to the end of a roster's queue (no-op if already in).
+  addToQueue: async (rosterId, playerId) => {
+    const current = get().draftQueues[rosterId] || [];
+    if (current.includes(playerId)) return;
+    const next = [...current, playerId];
+    await get().setDraftQueue(rosterId, next);
+  },
+
+  // Remove a player from a roster's queue.
+  removeFromQueue: async (rosterId, playerId) => {
+    const current = get().draftQueues[rosterId] || [];
+    if (!current.includes(playerId)) return;
+    const next = current.filter(id => id !== playerId);
+    await get().setDraftQueue(rosterId, next);
+  },
+
+  // Swap two entries in the queue — used by the up/down buttons.
+  moveInQueue: async (rosterId, fromIndex, toIndex) => {
+    const current = get().draftQueues[rosterId] || [];
+    if (
+      fromIndex < 0 || toIndex < 0 ||
+      fromIndex >= current.length || toIndex >= current.length ||
+      fromIndex === toIndex
+    ) return;
+    const next = current.slice();
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    await get().setDraftQueue(rosterId, next);
+  },
+
   // ---------- DRAFT ----------
 
   _persistDraftState: async (patch) => {
@@ -911,9 +974,14 @@ const useStore = create((set, get) => ({
     return { success: true, pick: pickEntry, isDone };
   },
 
-  // Best Player Available — picks the top-ADP undrafted, unkept player.
+  // Auto-pick for the team currently on the clock. First tries the
+  // manager's own draft queue, walking it in order and picking the first
+  // player who is still available. If the queue is empty or every queued
+  // player is already gone, falls back to Best Player Available by
+  // Sleeper's search_rank ADP. Either way the pick is tagged wasAuto so
+  // the draft log shows it wasn't a manual selection.
   autoPickBPA: async () => {
-    const { draftOrder, draftState, playerDB, keepers } = get();
+    const { draftOrder, draftState, playerDB, keepers, draftQueues } = get();
     const idx = (draftState.picks || []).length;
     const slot = draftOrder[idx];
     if (!slot) return { success: false, errors: ['Draft is over'] };
@@ -921,6 +989,21 @@ const useStore = create((set, get) => ({
       ...(draftState.picks || []).map(p => p.playerId),
       ...Object.values(keepers).flat(),
     ]);
+
+    // 1) Try the on-the-clock manager's queue in order.
+    const queue = draftQueues?.[slot.currentRosterId] || [];
+    for (const pid of queue) {
+      if (takenIds.has(pid)) continue;
+      const p = playerDB?.[pid];
+      if (!p || !p.position || p.status === 'Retired') continue;
+      return get().makeDraftPick({
+        rosterId: slot.currentRosterId,
+        playerId: pid,
+        wasAuto: true,
+      });
+    }
+
+    // 2) Fall back to ADP-best undrafted player.
     const candidates = Object.entries(playerDB || {})
       .filter(([id, p]) =>
         p &&
@@ -978,9 +1061,11 @@ const useStore = create((set, get) => ({
       supabase.from(TABLES.slotsBurned).delete().gte('roster_id', 0),
       supabase.from(TABLES.trades).delete().neq('id', ''),
       supabase.from(TABLES.mockDrafts).delete().gte('roster_id', 0),
+      supabase.from(TABLES.draftQueues).delete().gte('roster_id', 0),
     ]);
     set({
       draftPositions: {}, keepers: {}, slotsBurned: {}, trades: [], mockDrafts: {},
+      draftQueues: {},
       currentUser: null,
     });
     saveUser(null);
