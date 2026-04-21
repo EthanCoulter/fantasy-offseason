@@ -10,8 +10,14 @@ export default function LeaguePage() {
   const [expanded, setExpanded] = useState(null);
 
   const handleDownloadRoster = () => {
+    // Pass the full YEARS list so the CSV picks up future-year picks
+    // (e.g. 2027) as their own columns — these can move via trade
+    // during the live draft and need to be captured alongside the
+    // current-year keepers + drafted players.
     const rows = buildLeagueRosterCsv({
-      teams, teamAssets, playerDB, draftState, currentYear: YEARS[0],
+      teams, teamAssets, playerDB, draftState,
+      currentYear: YEARS[0],
+      years: YEARS,
     });
     const suffix = draftState?.isTrial ? '-TRIAL' : '';
     downloadCsv(`league-rosters-${YEARS[0]}${suffix}.csv`, rows);
@@ -42,7 +48,7 @@ export default function LeaguePage() {
           <button
             onClick={handleDownloadRoster}
             className="px-3 py-1.5 text-xs font-semibold bg-[#4da6ff]/20 text-[#4da6ff] border border-[#4da6ff]/40 rounded-xl hover:bg-[#4da6ff]/30 transition-colors"
-            title="Keepers + current-year picks + drafted players per team, ready for Excel"
+            title="Keepers + drafted players + remaining current-year picks + future-year picks (e.g. 2027), one column per year"
           >⬇ Rosters CSV</button>
           {draftHasPicks && (
             <button

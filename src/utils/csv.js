@@ -77,13 +77,33 @@ export function buildDraftRecapCsv({ teams, draftState, draftOrder }) {
   return rows;
 }
 
-// League roster CSV — each team's keepers, current-year picks, and (if the
-// draft has begun) drafted players. Designed to paste into an Excel sheet.
-export function buildLeagueRosterCsv({ teams, teamAssets, playerDB, draftState, currentYear }) {
+// League roster CSV — each team's keepers, current-year unused picks,
+// drafted players from the live draft, AND every future-year pick they
+// own (e.g. 2027). The future-year columns are important even though
+// they aren't drafted yet: they can be traded live during the current
+// draft, so anyone pasting this sheet mid-draft or end-of-draft wants
+// to see the latest ownership. Pass `years` as the full set of draft
+// years the league tracks; `currentYear` is the one the live draft is
+// running on — we emit one column per future year after it.
+export function buildLeagueRosterCsv({
+  teams,
+  teamAssets,
+  playerDB, // eslint-disable-line no-unused-vars
+  draftState,
+  currentYear,
+  years = [currentYear],
+}) {
   const picks = draftState?.picks || [];
+  const futureYears = (years || [])
+    .filter(y => y !== currentYear)
+    .sort((a, b) => a - b);
+
   const header = [
     'Team', 'Manager', 'Record',
-    'Keepers', `${currentYear} Picks`, `${currentYear} Drafted`,
+    'Keepers',
+    `${currentYear} Picks (unused)`,
+    `${currentYear} Drafted`,
+    ...futureYears.map(y => `${y} Picks`),
   ];
   const rows = [header];
 
@@ -92,8 +112,18 @@ export function buildLeagueRosterCsv({ teams, teamAssets, playerDB, draftState, 
     const keepers = (assets.players || [])
       .map(p => `${p.name} (${p.position})`)
       .join('; ');
+    // Current-year picks still sitting on the team (i.e. not yet spent in
+    // the live draft). We subtract what's already in the draft log so a
+    // pick that's already been used doesn't double-appear in the
+    // "unused" column AND the "drafted" column.
+    const usedPickKeys = new Set(
+      picks
+        .filter(p => p.rosterId === team.rosterId)
+        .map(p => `${currentYear}_${p.round}_${p.slot}`)
+    );
     const thisYearPicks = (assets.picks || [])
       .filter(p => p.year === currentYear)
+      .filter(p => !usedPickKeys.has(`${currentYear}_${p.round}_${p.position}`))
       .sort((a, b) => a.round - b.round || (a.position || 99) - (b.position || 99))
       .map(p => p.label)
       .join('; ');
@@ -102,6 +132,16 @@ export function buildLeagueRosterCsv({ teams, teamAssets, playerDB, draftState, 
       .sort((a, b) => a.pickIndex - b.pickIndex)
       .map(p => `R${p.round}.${String(p.slot).padStart(2, '0')} ${p.playerName} (${p.position})`)
       .join('; ');
+    // One cell per future year, e.g. "2027 R1; 2027 R3; 2027 R7". Grouping
+    // by year means a trade that swaps 2027 R2 for 2028 R4 shows up in
+    // the right column, not smeared across them.
+    const futureCells = futureYears.map(year =>
+      (assets.picks || [])
+        .filter(p => p.year === year)
+        .sort((a, b) => a.round - b.round)
+        .map(p => p.label)
+        .join('; ')
+    );
 
     rows.push([
       team.teamName,
@@ -110,6 +150,7 @@ export function buildLeagueRosterCsv({ teams, teamAssets, playerDB, draftState, 
       keepers,
       thisYearPicks,
       drafted,
+      ...futureCells,
     ]);
   });
   return rows;
