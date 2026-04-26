@@ -3,7 +3,7 @@ import useStore, { isOffensiveForTeam, BASE_OFFENSE_KEEPERS, BASE_DEFENSE_KEEPER
 import { posPill, posBox, posBoxOn } from '../utils/posColors';
 
 export default function KeepersPage() {
-  const { currentUser, teams, playerDB, keepers, setKeepers, draftPositions, slotsBurned, getMaxKeeperSlots, bonusPlayers } = useStore();
+  const { currentUser, teams, playerDB, keepers, setKeepers, draftPositions, slotsBurned, getMaxKeeperSlots, bonusPlayers, trades } = useStore();
   const [search, setSearch] = useState('');
   const [saved, setSaved] = useState(false);
 
@@ -47,9 +47,43 @@ export default function KeepersPage() {
   const offenseKeepers = regularOffenseKeepers;
   const defenseKeepers = regularDefenseKeepers;
 
+  // Track current player ownership across all rosters by walking accepted
+  // trades in chronological order. `myTeam.players` is the Sleeper raw
+  // roster (plus drafted players) and is NEVER updated by trades — so a
+  // player traded away (e.g. Josh Jacobs after a Kirk → Ben swap) would
+  // otherwise still appear as a selectable keeper option for the original
+  // owner. Walk every accepted trade and flip ownership: fromAssets
+  // players move from fromRosterId → toRosterId, and vice versa.
+  // Whatever roster owns the player at the end is the only one allowed
+  // to keep them.
+  const playerOwnership = useMemo(() => {
+    const ownership = {};
+    (teams || []).forEach(t => {
+      (t.players || []).forEach(pid => { ownership[pid] = t.rosterId; });
+    });
+    (trades || [])
+      .filter(t => t && t.status === 'accepted')
+      .slice()
+      .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      .forEach(trade => {
+        (trade.fromAssets || []).filter(a => a.type === 'player').forEach(p => {
+          ownership[p.id] = trade.toRosterId;
+        });
+        (trade.toAssets || []).filter(a => a.type === 'player').forEach(p => {
+          ownership[p.id] = trade.fromRosterId;
+        });
+      });
+    return ownership;
+  }, [teams, trades]);
+
   const myPlayers = useMemo(() => {
     if (!myTeam) return [];
     return (myTeam.players || [])
+      // Drop players who no longer belong to this manager because they were
+      // traded away in an accepted trade. Without this filter the original
+      // Sleeper roster keeps surfacing them as legal keeper picks even
+      // though they're now another team's asset.
+      .filter(id => playerOwnership[id] === myRosterId)
       .map(id => {
         const p = playerDB[id];
         if (!p) return null;
@@ -64,7 +98,7 @@ export default function KeepersPage() {
         const order = ['QB','RB','WR','TE','K','DEF'];
         return (order.indexOf(a.position) - order.indexOf(b.position)) || a.name.localeCompare(b.name);
       });
-  }, [myTeam, playerDB, search]);
+  }, [myTeam, playerDB, search, playerOwnership, myRosterId]);
 
   const toggleKeeper = (player) => {
     // Bonus-locked players cannot be toggled off — they're forced keepers.
