@@ -14,6 +14,7 @@ export const TABLES = {
   teamAssets: 'team_assets',
   trades: 'trades',
   mockDrafts: 'mock_drafts',
+  savedMockDrafts: 'saved_mock_drafts',
   draftState: 'draft_state',
   draftQueues: 'draft_queues',
 };
@@ -50,3 +51,25 @@ export const TABLES = {
 //   CREATE POLICY "draft_queues insert" ON draft_queues FOR INSERT WITH CHECK (true);
 //   CREATE POLICY "draft_queues update" ON draft_queues FOR UPDATE USING (true);
 //   CREATE POLICY "draft_queues delete" ON draft_queues FOR DELETE USING (true);
+//
+// One-time setup for named-saved mock drafts (run in Supabase SQL editor).
+// Each row is one saved snapshot of a manager's working mock board, named
+// by the manager (e.g. "Best-case", "If Bijan slides"). The working board
+// itself still lives in `mock_drafts` (one-row-per-roster, holds the PIN).
+//
+//   CREATE TABLE IF NOT EXISTS saved_mock_drafts (
+//     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+//     roster_id   INT NOT NULL,
+//     name        TEXT NOT NULL,
+//     picks       JSONB DEFAULT '[]'::jsonb,
+//     created_at  TIMESTAMPTZ DEFAULT NOW(),
+//     updated_at  TIMESTAMPTZ DEFAULT NOW()
+//   );
+//   CREATE INDEX IF NOT EXISTS saved_mock_drafts_roster_idx
+//     ON saved_mock_drafts(roster_id);
+//   ALTER PUBLICATION supabase_realtime ADD TABLE saved_mock_drafts;
+//   ALTER TABLE saved_mock_drafts ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "saved_mock_drafts read"   ON saved_mock_drafts FOR SELECT USING (true);
+//   CREATE POLICY "saved_mock_drafts insert" ON saved_mock_drafts FOR INSERT WITH CHECK (true);
+//   CREATE POLICY "saved_mock_drafts update" ON saved_mock_drafts FOR UPDATE USING (true);
+//   CREATE POLICY "saved_mock_drafts delete" ON saved_mock_drafts FOR DELETE USING (true);

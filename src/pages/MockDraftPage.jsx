@@ -2,76 +2,11 @@ import React, { useMemo, useState } from 'react';
 import useStore, { ROUNDS, YEARS, validateTrade } from '../store';
 import { hashPin } from '../utils/pinHash';
 import { posPill, posBox, posBoxOn } from '../utils/posColors';
+import PinScreen from '../components/PinScreen';
 
 const OFFENSE_POS = ['QB', 'RB', 'WR', 'TE', 'K'];
 const IDP_POS = ['DL', 'DE', 'DT', 'LB', 'DB', 'CB', 'S'];
 const MOCK_POOL_POSITIONS = [...OFFENSE_POS, ...IDP_POS];
-
-function PinScreen({ mode, onSubmit, onReset, error }) {
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-
-  const handle = async () => {
-    if (pin.length < 4) return onSubmit({ error: 'PIN must be at least 4 digits' });
-    if (mode === 'create' && pin !== confirmPin) return onSubmit({ error: 'PINs do not match' });
-    onSubmit({ pin });
-  };
-
-  return (
-    <div className="max-w-md mx-auto bg-[#111418] border border-[#2a3040] rounded-2xl p-6 space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-white mb-1">
-          {mode === 'create' ? 'Create Your Mock Draft Board' : 'Unlock Mock Draft Board'}
-        </h2>
-        <p className="text-sm text-[#8a95a8]">
-          {mode === 'create'
-            ? 'Set a PIN to keep your board private. You\'ll need it to view or edit later.'
-            : 'Enter your PIN to access your private mock draft board.'}
-        </p>
-      </div>
-
-      <input
-        type="password"
-        value={pin}
-        onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-        placeholder="Enter PIN (4+ digits)"
-        className="w-full bg-[#1a1f27] border border-[#2a3040] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00e5a0]"
-        onKeyDown={e => e.key === 'Enter' && handle()}
-      />
-
-      {mode === 'create' && (
-        <input
-          type="password"
-          value={confirmPin}
-          onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-          placeholder="Confirm PIN"
-          className="w-full bg-[#1a1f27] border border-[#2a3040] rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-[#00e5a0]"
-          onKeyDown={e => e.key === 'Enter' && handle()}
-        />
-      )}
-
-      {error && (
-        <div className="text-sm text-red-400 bg-red-400/10 rounded-lg px-3 py-2">{error}</div>
-      )}
-
-      <button
-        onClick={handle}
-        className="w-full py-3 rounded-xl bg-[#00e5a0] text-black font-semibold text-sm hover:bg-[#00ffb3] transition-colors"
-      >
-        {mode === 'create' ? 'Create Board' : 'Unlock'}
-      </button>
-
-      {mode === 'unlock' && onReset && (
-        <button
-          onClick={onReset}
-          className="w-full text-xs text-[#8a95a8] hover:text-red-400 transition-colors pt-2"
-        >
-          Forgot PIN? Reset board (wipes your picks)
-        </button>
-      )}
-    </div>
-  );
-}
 
 function HypotheticalTradeModal({ open, onClose, teams, teamAssets, onSubmit }) {
   const [sideAId, setSideAId] = useState('');
@@ -371,6 +306,8 @@ export default function MockDraftPage() {
     currentUser, teams, teamAssets, draftPositions, playerDB, keepers,
     mockDrafts, saveMockDraft, updateMockDraftPicks, deleteMockDraft,
     addMockTrade, removeMockTrade, clearMockDraftPicks,
+    savedMockDrafts, saveMockDraftAs, overwriteSavedMockDraft,
+    renameSavedMockDraft, deleteSavedMockDraft, loadSavedMockDraft,
   } = useStore();
   const [unlocked, setUnlocked] = useState(false);
   const [pinError, setPinError] = useState('');
@@ -378,6 +315,7 @@ export default function MockDraftPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeSlot, setActiveSlot] = useState(null);
   const [mockTradeOpen, setMockTradeOpen] = useState(false);
+  const [savedPanelOpen, setSavedPanelOpen] = useState(false);
 
   const rosterId = currentUser?.rosterId;
   const myBoard = rosterId ? mockDrafts[rosterId] : null;
@@ -508,7 +446,12 @@ export default function MockDraftPage() {
   };
 
   const handleReset = async () => {
-    if (!window.confirm('This will permanently delete your mock draft board. Continue?')) return;
+    if (!window.confirm('This will permanently delete your mock draft board AND all of your named saved drafts. Continue?')) return;
+    // Nuke every named save for this manager too — leaving them around
+    // would orphan them with no way to load (the new PIN belongs to a
+    // fresh board so the old saves would be unreachable from this UI).
+    const mySaved = savedMockDrafts?.[rosterId] || [];
+    await Promise.all(mySaved.map(sv => deleteSavedMockDraft(sv.id)));
     await deleteMockDraft(rosterId);
     setUnlocked(false);
     setPinError('');
@@ -552,6 +495,64 @@ export default function MockDraftPage() {
     await clearMockDraftPicks(rosterId);
   };
 
+  // Saved-draft handlers. Every save is a snapshot of the working board's
+  // full picks array (including hypothetical mockTrades) under a name the
+  // manager picks. Privacy: the panel only ever reads
+  // savedMockDrafts[currentUser.rosterId], so no manager can see another
+  // manager's saves — and the page-level PIN gate keeps non-owners out of
+  // this UI to begin with.
+  const mySaved = useMemo(
+    () => (rosterId ? (savedMockDrafts?.[rosterId] || []) : []),
+    [savedMockDrafts, rosterId]
+  );
+
+  const handleSaveAs = async () => {
+    const name = window.prompt('Name this mock draft (e.g. "Best-case", "If Bijan slides")');
+    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (mySaved.some(s => s.name.toLowerCase() === trimmed.toLowerCase())) {
+      const overwrite = window.confirm(
+        `You already have a save named "${trimmed}". Overwrite it with the current board?`
+      );
+      if (!overwrite) return;
+      const existing = mySaved.find(s => s.name.toLowerCase() === trimmed.toLowerCase());
+      await overwriteSavedMockDraft(existing.id, myBoard?.picks || []);
+      setSavedPanelOpen(true);
+      return;
+    }
+    await saveMockDraftAs(rosterId, trimmed, myBoard?.picks || []);
+    setSavedPanelOpen(true);
+  };
+
+  const handleLoadSaved = async (saved) => {
+    if (realPickCount > 0 || mockTrades.length > 0) {
+      const ok = window.confirm(
+        `Load "${saved.name}"? This will replace your current board (${realPickCount} pick${realPickCount === 1 ? '' : 's'}, ${mockTrades.length} hypothetical trade${mockTrades.length === 1 ? '' : 's'}). Save it first if you want to keep it.`
+      );
+      if (!ok) return;
+    }
+    await loadSavedMockDraft(rosterId, saved.id);
+  };
+
+  const handleDeleteSaved = async (saved) => {
+    if (!window.confirm(`Delete saved draft "${saved.name}"? This cannot be undone.`)) return;
+    await deleteSavedMockDraft(saved.id);
+  };
+
+  const handleRenameSaved = async (saved) => {
+    const next = window.prompt('Rename to:', saved.name);
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === saved.name) return;
+    await renameSavedMockDraft(saved.id, trimmed);
+  };
+
+  const handleOverwriteSaved = async (saved) => {
+    if (!window.confirm(`Overwrite "${saved.name}" with the current board state?`)) return;
+    await overwriteSavedMockDraft(saved.id, myBoard?.picks || []);
+  };
+
   const getTeamName = (rid) => teams.find(t => t.rosterId === rid)?.teamName || '—';
   const getTeamShort = (rid) => teams.find(t => t.rosterId === rid)?.teamName.substring(0, 14) || '—';
 
@@ -584,6 +585,11 @@ export default function MockDraftPage() {
           onSubmit={hasBoard ? handleUnlock : handleCreatePin}
           onReset={hasBoard ? handleReset : null}
           error={pinError}
+          title={hasBoard ? 'Unlock Mock Draft Board' : 'Create Your Mock Draft Board'}
+          description={hasBoard
+            ? 'Enter your PIN to access your private mock draft board.'
+            : 'Set a PIN to keep your board private. The same PIN unlocks your Draft Queue.'}
+          resetLabel="Forgot PIN? Reset board (wipes your picks AND saved drafts)"
         />
       </div>
     );
@@ -628,6 +634,21 @@ export default function MockDraftPage() {
             className="px-3 py-1.5 text-xs text-[#4da6ff] hover:text-white border border-[#4da6ff]/30 hover:border-[#4da6ff] bg-[#4da6ff]/10 rounded-xl transition-colors"
             title="Simulate a trade in this mock draft only (doesn't affect real league state)"
           >⇄ Hypothetical Trade</button>
+          <button
+            onClick={handleSaveAs}
+            disabled={realPickCount === 0 && mockTrades.length === 0}
+            title="Save the current board under a name so you can come back to it later"
+            className="px-3 py-1.5 text-xs text-[#00e5a0] hover:text-white border border-[#00e5a0]/30 hover:border-[#00e5a0] bg-[#00e5a0]/10 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >💾 Save As…</button>
+          <button
+            onClick={() => setSavedPanelOpen(o => !o)}
+            className={`px-3 py-1.5 text-xs border rounded-xl transition-colors ${
+              savedPanelOpen
+                ? 'bg-[#1a1f27] text-white border-[#2a3040]'
+                : 'text-[#8a95a8] border-[#2a3040] hover:text-white'
+            }`}
+            title="View / load / delete your saved mock drafts"
+          >📚 Saved ({mySaved.length})</button>
           <button
             onClick={handleClearAll}
             disabled={realPickCount === 0}
@@ -681,6 +702,69 @@ export default function MockDraftPage() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {savedPanelOpen && (
+        <div className="bg-[#00e5a0]/5 border border-[#00e5a0]/20 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-[#00e5a0] uppercase tracking-wider">
+              📚 My Saved Mock Drafts ({mySaved.length})
+            </div>
+            <div className="text-[10px] text-[#4a5568]">
+              Private to your team — only you see these
+            </div>
+          </div>
+          {mySaved.length === 0 ? (
+            <div className="text-xs text-[#4a5568] py-2">
+              You haven't saved any mock drafts yet. Build a board you like and click "💾 Save As…" to keep it.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {mySaved.map(sv => {
+                const realCount = (sv.picks || []).filter(p => p && p.type !== 'mockTrade').length;
+                const tradeCount = (sv.picks || []).filter(p => p && p.type === 'mockTrade').length;
+                const when = sv.updatedAt
+                  ? new Date(sv.updatedAt).toLocaleString(undefined, {
+                      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                    })
+                  : '';
+                return (
+                  <div
+                    key={sv.id}
+                    className="flex items-center gap-2 text-xs bg-[#0a0c10] border border-[#2a3040] rounded-lg px-3 py-2"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-white truncate">{sv.name}</div>
+                      <div className="text-[10px] text-[#4a5568]">
+                        {realCount} pick{realCount === 1 ? '' : 's'}
+                        {tradeCount > 0 && ` · ${tradeCount} hypothetical trade${tradeCount === 1 ? '' : 's'}`}
+                        {when && ` · saved ${when}`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleLoadSaved(sv)}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-[#4da6ff] border border-[#4da6ff]/30 rounded-lg hover:bg-[#4da6ff]/10"
+                      title="Load this save onto the working board (replaces current picks)"
+                    >View / Load</button>
+                    <button
+                      onClick={() => handleOverwriteSaved(sv)}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-[#00e5a0] border border-[#00e5a0]/30 rounded-lg hover:bg-[#00e5a0]/10"
+                      title="Update this save with the current working board"
+                    >Update</button>
+                    <button
+                      onClick={() => handleRenameSaved(sv)}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-[#8a95a8] border border-[#2a3040] rounded-lg hover:text-white"
+                    >Rename</button>
+                    <button
+                      onClick={() => handleDeleteSaved(sv)}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-[#8a95a8] border border-[#2a3040] rounded-lg hover:text-red-400 hover:border-red-400/40"
+                    >Delete</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

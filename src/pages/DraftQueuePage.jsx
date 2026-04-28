@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useStore from '../store';
 import { posPill, posBox } from '../utils/posColors';
+import PinScreen from '../components/PinScreen';
+import { hashPin } from '../utils/pinHash';
 
 // Per-manager ordered draft queue. If the clock runs out on this manager's
 // pick, the auto-picker walks this list in order and takes the first
@@ -23,10 +25,12 @@ export default function DraftQueuePage() {
     keepers,
     draftState,
     draftQueues,
+    mockDrafts,
     addToQueue,
     removeFromQueue,
     moveInQueue,
     setDraftQueue,
+    setManagerPin,
   } = useStore();
 
   const myRosterId = currentUser?.rosterId;
@@ -35,6 +39,16 @@ export default function DraftQueuePage() {
     () => draftQueues?.[myRosterId] || [],
     [draftQueues, myRosterId]
   );
+
+  // PIN gate. Same hash that protects the manager's mock draft board —
+  // we deliberately reuse it so a manager has ONE private PIN instead of
+  // two. If they've already created the PIN over on Mock Draft, we ask
+  // them to enter it; if not, we prompt them to create one (and persist
+  // it on the same `mock_drafts` row).
+  const myMockBoard = myRosterId ? mockDrafts?.[myRosterId] : null;
+  const existingPinHash = myMockBoard?.pinHash || null;
+  const [unlocked, setUnlocked] = useState(false);
+  const [pinError, setPinError] = useState('');
 
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState('ALL');
@@ -123,6 +137,26 @@ export default function DraftQueuePage() {
     }
   };
 
+  // PIN handlers. Submitting in 'create' mode persists a pin_hash to
+  // the manager's mock_drafts row — the same row that gates Mock Draft —
+  // so the very next visit to either page just unlocks. Submitting in
+  // 'unlock' mode compares against the stored hash.
+  const handleCreatePin = async ({ pin, error }) => {
+    if (error) { setPinError(error); return; }
+    setPinError('');
+    const h = await hashPin(pin);
+    await setManagerPin(myRosterId, h);
+    setUnlocked(true);
+  };
+
+  const handleUnlock = async ({ pin, error }) => {
+    if (error) { setPinError(error); return; }
+    const h = await hashPin(pin);
+    if (h !== existingPinHash) { setPinError('Incorrect PIN'); return; }
+    setPinError('');
+    setUnlocked(true);
+  };
+
   if (!myRosterId) {
     return (
       <div className="bg-[#111418] border border-[#2a3040] rounded-2xl px-5 py-12 text-center text-[#8a95a8]">
@@ -131,19 +165,54 @@ export default function DraftQueuePage() {
     );
   }
 
+  // Gate the queue behind the same PIN that protects the mock draft
+  // board. Reusing one PIN per manager keeps things simple — if they
+  // set it on Mock Draft already, they don't get prompted twice; if
+  // they haven't, creating one here lights up both surfaces.
+  if (!unlocked) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1
+            className="text-xl sm:text-2xl font-black text-white"
+            style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
+          >
+            DRAFT QUEUE
+          </h1>
+          <p className="text-[#8a95a8] text-sm">Private · PIN-protected</p>
+        </div>
+        <PinScreen
+          mode={existingPinHash ? 'unlock' : 'create'}
+          onSubmit={existingPinHash ? handleUnlock : handleCreatePin}
+          error={pinError}
+          title={existingPinHash ? 'Unlock Draft Queue' : 'Create Your Manager PIN'}
+          description={existingPinHash
+            ? 'Enter the same PIN you use for your Mock Draft board to access your private queue.'
+            : 'Set a PIN to keep your draft queue private. The same PIN will also unlock your Mock Draft board.'}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1
-          className="text-xl sm:text-2xl font-black text-white"
-          style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
-        >
-          DRAFT QUEUE
-        </h1>
-        <p className="text-[#8a95a8] text-xs sm:text-sm">
-          {myTeam?.teamName} · Rank the players you want. If the clock runs out on your pick,
-          we'll grab the first one still available.
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="min-w-0 flex-1">
+          <h1
+            className="text-xl sm:text-2xl font-black text-white"
+            style={{ fontFamily: 'Bebas Neue, sans-serif', letterSpacing: '0.05em' }}
+          >
+            DRAFT QUEUE
+          </h1>
+          <p className="text-[#8a95a8] text-xs sm:text-sm">
+            {myTeam?.teamName} · Rank the players you want. If the clock runs out on your pick,
+            we'll grab the first one still available.
+          </p>
+        </div>
+        <button
+          onClick={() => { setUnlocked(false); setPinError(''); }}
+          className="px-3 py-1.5 text-xs text-[#8a95a8] hover:text-white border border-[#2a3040] rounded-xl"
+        >🔒 Lock</button>
       </div>
 
       {/* How-it-works card */}

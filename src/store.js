@@ -430,6 +430,12 @@ const useStore = create((set, get) => ({
   bonusPlayers: {},
   trades: [],
   mockDrafts: {},
+  // Named snapshots of a manager's mock board. Keyed by rosterId →
+  // [{ id, name, picks, createdAt, updatedAt }, ...]. The PIN that
+  // gates MockDraftPage / DraftQueuePage still lives in the per-roster
+  // `mockDrafts[rosterId].pinHash` row — saves don't carry their own
+  // PIN, since they're already inside the gated surface.
+  savedMockDrafts: {},
   teamAssets: {},
   draftState: EMPTY_DRAFT_STATE,
   draftOrder: [],
@@ -476,7 +482,7 @@ const useStore = create((set, get) => ({
 
   hydrateFromSupabase: async () => {
     try {
-      const [r, k, sb, tr, md, ds, dq] = await Promise.all([
+      const [r, k, sb, tr, md, ds, dq, smd] = await Promise.all([
         supabase.from(TABLES.rankings).select('*'),
         supabase.from(TABLES.keepers).select('*'),
         supabase.from(TABLES.slotsBurned).select('*'),
@@ -484,6 +490,7 @@ const useStore = create((set, get) => ({
         supabase.from(TABLES.mockDrafts).select('*'),
         supabase.from(TABLES.draftState).select('*').eq('id', 1).maybeSingle(),
         supabase.from(TABLES.draftQueues).select('*'),
+        supabase.from(TABLES.savedMockDrafts).select('*').order('created_at', { ascending: false }),
       ]);
 
       const draftPositions = {};
@@ -539,7 +546,29 @@ const useStore = create((set, get) => ({
         draftQueues[row.roster_id] = row.player_ids || [];
       });
 
-      set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, draftState, draftQueues, supabaseLoaded: true });
+      // Group named saved drafts by owner so the UI can grab a manager's
+      // own list with a single key lookup. Privacy: the page only ever
+      // reads savedMockDrafts[currentUser.rosterId], and the PIN gate
+      // around the page keeps everyone else out.
+      const savedMockDrafts = {};
+      (smd?.data || []).forEach(row => {
+        const list = savedMockDrafts[row.roster_id] || [];
+        list.push({
+          id: row.id,
+          rosterId: row.roster_id,
+          name: row.name,
+          picks: row.picks || [],
+          createdAt: row.created_at ? new Date(row.created_at).getTime() : 0,
+          updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+        });
+        savedMockDrafts[row.roster_id] = list;
+      });
+      // Newest first within each manager's list
+      Object.values(savedMockDrafts).forEach(list =>
+        list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      );
+
+      set({ draftPositions, keepers, slotsBurned, trades, mockDrafts, savedMockDrafts, draftState, draftQueues, supabaseLoaded: true });
       get().rebuildAssets();
     } catch (e) {
       console.error('Supabase hydration failed:', e);
@@ -555,6 +584,7 @@ const useStore = create((set, get) => ({
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.slotsBurned }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.trades }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.mockDrafts }, () => get().hydrateFromSupabase())
+      .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.savedMockDrafts }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.draftState }, () => get().hydrateFromSupabase())
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLES.draftQueues }, () => get().hydrateFromSupabase())
       .subscribe();
@@ -830,6 +860,149 @@ const useStore = create((set, get) => ({
     await supabase.from(TABLES.mockDrafts).delete().eq('roster_id', rosterId);
   },
 
+  // Set / change the per-manager PIN that gates BOTH the mock draft board
+  // and the draft queue page. If the manager has never created a board,
+  // this inserts a fresh `mock_drafts` row with empty picks; otherwise it
+  // updates the pin_hash in place. The same PIN protects both surfaces
+  // because they share the gate — once unlocked on one, the other uses
+  // the same hash to verify.
+  setManagerPin: async (rosterId, pinHash) => {
+    const existing = get().mockDrafts[rosterId];
+    if (existing) {
+      set(s => ({
+        mockDrafts: { ...s.mockDrafts, [rosterId]: { ...existing, pinHash } },
+      }));
+      await supabase.from(TABLES.mockDrafts).update({
+        pin_hash: pinHash, updated_at: new Date().toISOString(),
+      }).eq('roster_id', rosterId);
+    } else {
+      set(s => ({
+        mockDrafts: {
+          ...s.mockDrafts,
+          [rosterId]: { pinHash, picks: [], mockTrades: [] },
+        },
+      }));
+      await supabase.from(TABLES.mockDrafts).upsert({
+        roster_id: rosterId, pin_hash: pinHash, picks: [],
+      });
+    }
+  },
+
+  // ---------- NAMED SAVED MOCK DRAFTS ----------
+  //
+  // A "saved" mock draft is a snapshot of a manager's working board
+  // (everything in `mock_drafts.picks`, including hypothetical mockTrade
+  // entries) stored under a user-chosen name. Saves are independent of
+  // the working board: editing the working board does NOT mutate any
+  // save, and loading a save copies its picks back over the working
+  // board (with confirm). Multiple saves per manager — the manager
+  // picks the names ("Best-case", "If Bijan slides", etc.).
+
+  // Persist a named copy of the given picks array. `picks` is the full
+  // mock board JSONB (real picks + mockTrade entries). Returns the new
+  // saved row so the caller can show it immediately.
+  saveMockDraftAs: async (rosterId, name, picks) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const { data, error } = await supabase
+      .from(TABLES.savedMockDrafts)
+      .insert({ roster_id: rosterId, name: trimmed, picks: picks || [] })
+      .select()
+      .single();
+    if (error) {
+      console.error('saveMockDraftAs failed:', error);
+      return null;
+    }
+    const entry = {
+      id: data.id,
+      rosterId: data.roster_id,
+      name: data.name,
+      picks: data.picks || [],
+      createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
+      updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now(),
+    };
+    set(s => {
+      const list = s.savedMockDrafts[rosterId] || [];
+      return {
+        savedMockDrafts: {
+          ...s.savedMockDrafts,
+          [rosterId]: [entry, ...list],
+        },
+      };
+    });
+    return entry;
+  },
+
+  // Overwrite an existing named save with the current working picks.
+  // Useful for "Update this save" when iterating on the same scenario.
+  overwriteSavedMockDraft: async (savedId, picks) => {
+    const { data, error } = await supabase
+      .from(TABLES.savedMockDrafts)
+      .update({ picks: picks || [], updated_at: new Date().toISOString() })
+      .eq('id', savedId)
+      .select()
+      .single();
+    if (error) {
+      console.error('overwriteSavedMockDraft failed:', error);
+      return null;
+    }
+    set(s => {
+      const next = { ...s.savedMockDrafts };
+      Object.keys(next).forEach(rid => {
+        next[rid] = (next[rid] || []).map(sv =>
+          sv.id === savedId
+            ? {
+                ...sv,
+                picks: data.picks || [],
+                updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now(),
+              }
+            : sv
+        );
+      });
+      return { savedMockDrafts: next };
+    });
+    return data;
+  },
+
+  renameSavedMockDraft: async (savedId, newName) => {
+    const trimmed = (newName || '').trim();
+    if (!trimmed) return;
+    set(s => {
+      const next = { ...s.savedMockDrafts };
+      Object.keys(next).forEach(rid => {
+        next[rid] = (next[rid] || []).map(sv =>
+          sv.id === savedId ? { ...sv, name: trimmed } : sv
+        );
+      });
+      return { savedMockDrafts: next };
+    });
+    await supabase.from(TABLES.savedMockDrafts).update({
+      name: trimmed, updated_at: new Date().toISOString(),
+    }).eq('id', savedId);
+  },
+
+  deleteSavedMockDraft: async (savedId) => {
+    set(s => {
+      const next = { ...s.savedMockDrafts };
+      Object.keys(next).forEach(rid => {
+        next[rid] = (next[rid] || []).filter(sv => sv.id !== savedId);
+      });
+      return { savedMockDrafts: next };
+    });
+    await supabase.from(TABLES.savedMockDrafts).delete().eq('id', savedId);
+  },
+
+  // Copy a saved snapshot's picks back onto the working board. The
+  // working board's PIN stays in place — only the `picks` payload is
+  // replaced. Caller is responsible for confirming with the user since
+  // this clobbers whatever's currently on the board.
+  loadSavedMockDraft: async (rosterId, savedId) => {
+    const list = get().savedMockDrafts[rosterId] || [];
+    const sv = list.find(s => s.id === savedId);
+    if (!sv) return;
+    await get().updateMockDraftPicks(rosterId, sv.picks || []);
+  },
+
   getTeam: (rosterId) => get().teams.find(t => t.rosterId === rosterId),
   getAssets: (rosterId) => get().teamAssets[rosterId] || { players: [], picks: [] },
 
@@ -1061,10 +1234,12 @@ const useStore = create((set, get) => ({
       supabase.from(TABLES.slotsBurned).delete().gte('roster_id', 0),
       supabase.from(TABLES.trades).delete().neq('id', ''),
       supabase.from(TABLES.mockDrafts).delete().gte('roster_id', 0),
+      supabase.from(TABLES.savedMockDrafts).delete().gte('roster_id', 0),
       supabase.from(TABLES.draftQueues).delete().gte('roster_id', 0),
     ]);
     set({
       draftPositions: {}, keepers: {}, slotsBurned: {}, trades: [], mockDrafts: {},
+      savedMockDrafts: {},
       draftQueues: {},
       currentUser: null,
     });
