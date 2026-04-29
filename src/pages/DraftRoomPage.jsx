@@ -131,6 +131,44 @@ export default function DraftRoomPage() {
   const timerDanger = remaining <= 15 && remaining > 0;
   const timerExpired = draftState.isActive && remaining === 0 && !!currentSlot;
 
+  // Bulletproof the clock against mid-draft cap transitions. The clock is
+  // already reset on every pick (in makeDraftPick), so the normal flow
+  // hands the next under-cap team a fresh timer automatically. The hole is
+  // when a NON-pick event (a trade landing a player on a team that was on
+  // the clock, a keeper edit, etc.) pushes a team to 17 and the projection
+  // jumps to the next team mid-clock — without a pick to reset the timer,
+  // the new on-the-clock team would inherit the old team's stopwatch.
+  // Track the (round, slot) currentSlot was timing last; if it changes
+  // without picks.length advancing, reset the clock so the new team gets
+  // a clean count.
+  const lastClockedSlotRef = useRef(null);
+  const lastPicksLenRef = useRef(0);
+  useEffect(() => {
+    if (!isCommish) return;
+    if (!draftState.isActive || !currentSlot) {
+      lastClockedSlotRef.current = currentSlot
+        ? `${currentSlot.round}_${currentSlot.slot}`
+        : null;
+      lastPicksLenRef.current = picksCount;
+      return;
+    }
+    const slotKey = `${currentSlot.round}_${currentSlot.slot}`;
+    const slotChanged = lastClockedSlotRef.current !== slotKey;
+    const picksAdvanced = lastPicksLenRef.current !== picksCount;
+    // Slot moved without a pick landing → cap-skip from a non-pick event.
+    if (slotChanged && !picksAdvanced && lastClockedSlotRef.current != null) {
+      resetPickClock();
+    }
+    lastClockedSlotRef.current = slotKey;
+    lastPicksLenRef.current = picksCount;
+  }, [
+    isCommish,
+    draftState.isActive,
+    currentSlot,
+    picksCount,
+    resetPickClock,
+  ]);
+
   // Players already off the board (drafted or kept) — excluded from picker
   const takenIds = useMemo(() => {
     const s = new Set();
