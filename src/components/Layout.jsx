@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import useStore from '../store';
+import React, { useMemo, useState } from 'react';
+import useStore, { projectDraftOrder } from '../store';
 import MyTeamPage from '../pages/MyTeamPage';
 import KeepersPage from '../pages/KeepersPage';
 import TradePage from '../pages/TradePage';
@@ -33,7 +33,7 @@ const NAV_COMMISSIONER = [
 const DRAFT_PICK_NAV_ITEM = { id: 'draftpick', label: 'Make Pick', icon: '🏈' };
 
 export default function Layout() {
-  const { currentUser, logout, trades, teams, draftState, draftOrder } = useStore();
+  const { currentUser, logout, trades, teams, keepers, bonusPlayers, draftState, draftOrder } = useStore();
   const [activePage, setActivePage] = useState(currentUser?.isCommissioner ? 'commissioner' : 'team');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -47,9 +47,17 @@ export default function Layout() {
       ? [...NAV_MANAGER_BASE.slice(0, 3), DRAFT_PICK_NAV_ITEM, ...NAV_MANAGER_BASE.slice(3)]
       : NAV_MANAGER_BASE;
 
-  // On-the-clock badge for the manager pick tab
-  const picksMade = (draftState?.picks || []).length;
-  const onTheClockRoster = draftOrder?.[picksMade]?.currentRosterId;
+  // On-the-clock badge for the manager pick tab. Has to walk the projection
+  // because the live draft auto-skips slots whose owner is at the 17-roster
+  // cap — `draftOrder[picks.length]` would point at a skipped slot for any
+  // late round when several teams are already full.
+  const onTheClockRoster = useMemo(() => {
+    if (!draftLive) return null;
+    const proj = projectDraftOrder(
+      draftOrder, draftState?.picks || [], keepers, teams, bonusPlayers
+    );
+    return proj.find(s => s.status === 'pending')?.currentRosterId ?? null;
+  }, [draftLive, draftOrder, draftState?.picks, keepers, teams, bonusPlayers]);
   const isMyTurn = draftLive && onTheClockRoster === currentUser?.rosterId;
 
   const myTeam = !isCommissioner ? teams.find(t => t.rosterId === currentUser?.rosterId) : null;

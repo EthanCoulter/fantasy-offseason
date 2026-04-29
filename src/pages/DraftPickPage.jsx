@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import useStore, { clockSecondsForRound, validateTrade } from '../store';
+import useStore, { clockSecondsForRound, validateTrade, projectDraftOrder } from '../store';
 import { posPill, posBox, posBoxOn } from '../utils/posColors';
 
 const DRAFT_SOUND_URL = '/draft-pick.mp3';
@@ -11,6 +11,7 @@ export default function DraftPickPage() {
     teams,
     playerDB,
     keepers,
+    bonusPlayers,
     draftState,
     draftOrder,
     makeDraftPick,
@@ -45,7 +46,17 @@ export default function DraftPickPage() {
   }, []);
 
   const picks = useMemo(() => draftState.picks || [], [draftState.picks]);
-  const currentSlot = draftOrder[picks.length] || null;
+  // Same projection-based on-the-clock logic the store uses internally —
+  // any team already at the 17-roster cap is auto-skipped, so we have to
+  // walk the projection rather than indexing by picks.length.
+  const projection = useMemo(
+    () => projectDraftOrder(draftOrder, picks, keepers, teams, bonusPlayers),
+    [draftOrder, picks, keepers, teams, bonusPlayers]
+  );
+  const currentSlot = useMemo(
+    () => projection.find(s => s.status === 'pending') || null,
+    [projection]
+  );
   const isOnTheClock = currentSlot && currentSlot.currentRosterId === myRosterId;
   const clockSecs = currentSlot ? clockSecondsForRound(currentSlot.round) : 0;
   const elapsed = draftState.currentPickStartTime
@@ -103,13 +114,19 @@ export default function DraftPickPage() {
   const originalTeam = currentSlot && currentSlot.originalRosterId !== currentSlot.currentRosterId
     ? teams.find(t => t.rosterId === currentSlot.originalRosterId) : null;
 
-  // Find my next pick in the order (including the current one if it's mine)
+  // Find my next pick in the order (including the current one if it's mine).
+  // Walks the projection so 'skipped' slots (a team already at 17 roster
+  // size) don't count toward "picks until your turn" — and a full team's
+  // own slots aren't surfaced to them as a "next pick" that won't happen.
   const myNextSlot = useMemo(() => {
-    for (let i = picks.length; i < draftOrder.length; i++) {
-      if (draftOrder[i].currentRosterId === myRosterId) return { ...draftOrder[i], picksUntil: i - picks.length };
+    const pending = projection.filter(s => s.status === 'pending');
+    for (let i = 0; i < pending.length; i++) {
+      if (pending[i].currentRosterId === myRosterId) {
+        return { ...pending[i], picksUntil: i };
+      }
     }
     return null;
-  }, [draftOrder, picks.length, myRosterId]);
+  }, [projection, myRosterId]);
 
   const takenIds = useMemo(() => {
     const s = new Set();

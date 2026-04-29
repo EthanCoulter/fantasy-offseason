@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import useStore, { clockSecondsForRound, YEARS, ROUNDS, testDiscordWebhook, sendTestTradeAlert } from '../store';
+import useStore, {
+  clockSecondsForRound, YEARS, ROUNDS, projectDraftOrder,
+  testDiscordWebhook, sendTestTradeAlert,
+} from '../store';
 import { downloadCsv, buildDraftRecapCsv, buildLeagueRosterCsv } from '../utils/csv';
 import { posPill, posBoxOn } from '../utils/posColors';
 
@@ -15,6 +18,7 @@ export default function DraftRoomPage() {
     draftPositions,
     playerDB,
     keepers,
+    bonusPlayers,
     teamAssets,
     draftState,
     draftOrder,
@@ -89,11 +93,35 @@ export default function DraftRoomPage() {
 
   const picksCount = (draftState.picks || []).length;
   const totalPicks = draftOrder.length;
-  const currentSlot = draftOrder[picksCount] || null;
+  // Project the order so any slot whose owner already hit the roster cap is
+  // tagged 'skipped' — the on-the-clock slot is the next 'pending' entry,
+  // which jumps over any full team. This keeps the cap enforcement and the
+  // grey-out UI in lockstep: the same projection drives both.
+  const projection = useMemo(
+    () => projectDraftOrder(draftOrder, draftState.picks || [], keepers, teams, bonusPlayers),
+    [draftOrder, draftState.picks, keepers, teams, bonusPlayers]
+  );
+  // Picks the live draft will actually run = made + pending (excludes
+  // 'skipped' slots, which are bypassed because the owner already hit the
+  // 17-roster cap). Used for the "made / scheduled" status line so the
+  // counter reflects what's actually going to happen, not a never-reached
+  // theoretical max.
+  const scheduledPicks = useMemo(
+    () => projection.filter(s => s.status !== 'skipped').length,
+    [projection]
+  );
+  const currentSlot = projection.find(s => s.status === 'pending') || null;
   const currentTeam = currentSlot ? teams.find(t => t.rosterId === currentSlot.currentRosterId) : null;
   const originalTeam = currentSlot && currentSlot.originalRosterId !== currentSlot.currentRosterId
     ? teams.find(t => t.rosterId === currentSlot.originalRosterId)
     : null;
+  // Cell-keyed status lookup for the board grid — fastest way to render
+  // 'made' / 'skipped' / 'pending' without re-walking the projection per cell.
+  const statusByCell = useMemo(() => {
+    const map = {};
+    projection.forEach(s => { map[`${s.round}_${s.slot}`] = s.status; });
+    return map;
+  }, [projection]);
 
   const clockSecs = currentSlot ? clockSecondsForRound(currentSlot.round) : 0;
   const elapsed = draftState.currentPickStartTime
@@ -272,7 +300,10 @@ export default function DraftRoomPage() {
               <span className="ml-3 text-yellow-400 font-semibold">🧪 TRIAL MODE</span>
             )}
             {' · '}
-            {picksCount}/{totalPicks} picks made
+            {picksCount}/{scheduledPicks} picks made
+            {scheduledPicks < totalPicks && (
+              <span className="text-[#4a5568]"> ({totalPicks - scheduledPicks} skipped — roster full)</span>
+            )}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -617,6 +648,11 @@ export default function DraftRoomPage() {
                     // No pick yet — show the manager's team name so the board
                     // reads like a standard draft board. If the pick's been
                     // traded, show the current owner (with a tiny "via" tag).
+                    // Cells whose owner is at the 17-roster cap are tagged
+                    // 'skipped' by the projection: render them greyed-out
+                    // with a "ROSTER FULL" badge so the commish (and anyone
+                    // glancing at the board) can see at a glance that the
+                    // live draft will jump past those slots.
                     const entry = orderByCell[`${round}_${slot}`];
                     const currentOwner = entry
                       ? teams.find(t => t.rosterId === entry.currentRosterId)
@@ -625,19 +661,32 @@ export default function DraftRoomPage() {
                     const tradedFrom = entry && entry.currentRosterId !== entry.originalRosterId
                       ? teams.find(t => t.rosterId === entry.originalRosterId)
                       : null;
+                    const cellStatus = statusByCell[`${round}_${slot}`];
+                    const isSkipped = cellStatus === 'skipped';
                     return (
                       <td
                         key={team.rosterId}
                         className={`px-2 py-1.5 border-l border-[#2a3040] align-top ${
-                          isOnTheClock ? 'bg-[#00e5a0]/15 animate-pulse' : ''
+                          isOnTheClock
+                            ? 'bg-[#00e5a0]/15 animate-pulse'
+                            : isSkipped
+                              ? 'bg-[#1a1f27] opacity-50'
+                              : ''
                         }`}
                       >
-                        <div className="text-[10px] font-semibold text-white truncate max-w-[120px]">
+                        <div className={`text-[10px] font-semibold truncate max-w-[120px] ${
+                          isSkipped ? 'text-[#4a5568] line-through' : 'text-white'
+                        }`}>
                           {owner?.teamName || '—'}
                         </div>
-                        {tradedFrom && (
+                        {tradedFrom && !isSkipped && (
                           <div className="text-[9px] text-[#ff6b35] truncate max-w-[120px]">
                             via {tradedFrom.teamName}
+                          </div>
+                        )}
+                        {isSkipped && (
+                          <div className="text-[9px] text-[#ff6b35] font-bold mt-0.5">
+                            ROSTER FULL
                           </div>
                         )}
                         {isOnTheClock && (

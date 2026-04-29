@@ -2,8 +2,15 @@ import { create } from 'zustand';
 import { supabase, TABLES } from './utils/supabase';
 
 export const LEAGUE_ID = '1250556742954135552';
-export const ROUNDS = 11;
+export const ROUNDS = 14;
 export const YEARS = [2026, 2027];
+
+// Once a team has this many roster spots filled (keepers + drafted players),
+// the live draft skips their remaining picks. Set on the league side to match
+// the active roster cap so nobody draft a 18th player they can't roster. Mock
+// drafts intentionally ignore this — they're hypothetical and a manager may
+// want to see "what if I drafted 14 deep."
+export const ROSTER_SIZE_LIMIT = 17;
 export const BASE_OFFENSE_KEEPERS = 5;
 export const BASE_DEFENSE_KEEPERS = 1;
 export const OFFENSE_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'FB'];
@@ -380,6 +387,61 @@ export function computeDraftOrder(teams, teamAssets, draftPositions) {
     }
   }
   return order;
+}
+
+// Walk the draft order in pick-by-pick order and tag each slot. Output is
+// an array the same length as `draftOrder`, with each entry carrying:
+//   - status: 'made' | 'pending' | 'skipped'
+//   - pick:   the matching real pick (only when status === 'made')
+// 'made' means a real pick lives at this slot. 'pending' means the slot is
+// still draftable — its owner is below the roster cap WHEN draft order
+// reaches them. 'skipped' means the owner is at the roster cap by the time
+// the draft would arrive at this slot, so the live draft fast-forwards
+// past it. The simulation increments per-team counts as it walks; both
+// already-made picks and projected pending picks count toward the cap, so
+// future slots resolve correctly.
+//
+// Used by the live draft to (a) find the next slot on the clock, (b) grey
+// out skipped cells in the draft board UI, and (c) decide when the draft
+// is actually finished (no remaining 'pending' entries).
+export function projectDraftOrder(draftOrder, picks, keepers, teams, bonusPlayers) {
+  const counts = {};
+  (teams || []).forEach(t => {
+    // Keepers + bonus-locked keepers (deduped). Some bonus IDs are also in
+    // `keepers` post-setKeepers; the Set dedupes either way so the count is
+    // correct whether the merge has been persisted or not.
+    const merged = new Set([
+      ...(keepers?.[t.rosterId] || []),
+      ...(bonusPlayers?.[t.rosterId] || []),
+    ]);
+    counts[t.rosterId] = merged.size;
+  });
+  const madeByCell = new Map();
+  (picks || []).forEach(p => {
+    if (!p) return;
+    madeByCell.set(`${p.round}_${p.slot}`, p);
+  });
+
+  const projection = [];
+  (draftOrder || []).forEach(slot => {
+    const key = `${slot.round}_${slot.slot}`;
+    const owner = slot.currentRosterId;
+    const realPick = madeByCell.get(key);
+    if (realPick) {
+      counts[owner] = (counts[owner] || 0) + 1;
+      projection.push({ ...slot, status: 'made', pick: realPick });
+      return;
+    }
+    if ((counts[owner] || 0) >= ROSTER_SIZE_LIMIT) {
+      projection.push({ ...slot, status: 'skipped' });
+      return;
+    }
+    // Pending — model this team taking the slot so future slots project
+    // correctly against the same cap.
+    counts[owner] = (counts[owner] || 0) + 1;
+    projection.push({ ...slot, status: 'pending' });
+  });
+  return projection;
 }
 
 const EMPTY_DRAFT_STATE = {
@@ -1102,19 +1164,28 @@ const useStore = create((set, get) => ({
     await get()._persistDraftState({ currentPickStartTime: Date.now() });
   },
 
-  // Who is on the clock right now, derived from picks.length.
+  // Who is on the clock right now. With the roster-size cap, slots whose
+  // owner is already at ROSTER_SIZE_LIMIT (keepers + drafted) are skipped,
+  // so we have to project the order rather than just index by picks.length.
   getCurrentPickSlot: () => {
-    const { draftOrder, draftState } = get();
-    const idx = (draftState.picks || []).length;
-    return draftOrder[idx] || null;
+    const { draftOrder, draftState, keepers, teams, bonusPlayers } = get();
+    const projection = projectDraftOrder(
+      draftOrder, draftState.picks || [], keepers, teams, bonusPlayers
+    );
+    return projection.find(s => s.status === 'pending') || null;
   },
 
   makeDraftPick: async ({ rosterId, playerId, wasAuto = false }) => {
-    const { draftOrder, draftState, playerDB } = get();
-    const idx = (draftState.picks || []).length;
-    const slot = draftOrder[idx];
-    if (!slot) return { success: false, errors: ['Draft is over'] };
-    if (slot.currentRosterId !== rosterId) {
+    const { draftOrder, draftState, playerDB, keepers, teams, bonusPlayers } = get();
+    // Resolve the on-the-clock slot through the projection so any team that
+    // hit the 17-roster cap before this slot gets auto-skipped, exactly as
+    // the UI shows.
+    const projection = projectDraftOrder(
+      draftOrder, draftState.picks || [], keepers, teams, bonusPlayers
+    );
+    const next = projection.find(s => s.status === 'pending');
+    if (!next) return { success: false, errors: ['Draft is over'] };
+    if (next.currentRosterId !== rosterId) {
       return { success: false, errors: ['It is not your turn to pick'] };
     }
     const alreadyPicked = new Set((draftState.picks || []).map(p => p.playerId));
@@ -1125,9 +1196,12 @@ const useStore = create((set, get) => ({
     if (!p) return { success: false, errors: ['Unknown player'] };
 
     const pickEntry = {
-      pickIndex: idx,
-      round: slot.round,
-      slot: slot.slot,
+      // pickIndex now points at the slot's position in draftOrder — not
+      // picks.length — so it stays a stable cross-reference even when the
+      // draft order has skipped slots between real picks.
+      pickIndex: next.pickIndex,
+      round: next.round,
+      slot: next.slot,
       rosterId,
       playerId,
       playerName: p.full_name || `${p.first_name || ''} ${p.last_name || ''}`.trim(),
@@ -1137,7 +1211,13 @@ const useStore = create((set, get) => ({
       wasAuto: !!wasAuto,
     };
     const nextPicks = [...(draftState.picks || []), pickEntry];
-    const isDone = nextPicks.length >= draftOrder.length;
+    // Re-project with the new pick applied; if no 'pending' slots remain
+    // (every other team is also at the cap or has all picks made) the
+    // draft is complete.
+    const nextProjection = projectDraftOrder(
+      draftOrder, nextPicks, keepers, teams, bonusPlayers
+    );
+    const isDone = !nextProjection.some(s => s.status === 'pending');
     await get()._persistDraftState({
       picks: nextPicks,
       currentPickStartTime: isDone ? null : Date.now(),
@@ -1154,9 +1234,14 @@ const useStore = create((set, get) => ({
   // Sleeper's search_rank ADP. Either way the pick is tagged wasAuto so
   // the draft log shows it wasn't a manual selection.
   autoPickBPA: async () => {
-    const { draftOrder, draftState, playerDB, keepers, draftQueues } = get();
-    const idx = (draftState.picks || []).length;
-    const slot = draftOrder[idx];
+    const { draftOrder, draftState, playerDB, keepers, teams, bonusPlayers, draftQueues } = get();
+    // Use the projection so we auto-pick for the actual on-the-clock team,
+    // not whoever happens to sit at picks.length in a draft order that has
+    // skipped slots from full rosters.
+    const projection = projectDraftOrder(
+      draftOrder, draftState.picks || [], keepers, teams, bonusPlayers
+    );
+    const slot = projection.find(s => s.status === 'pending');
     if (!slot) return { success: false, errors: ['Draft is over'] };
     const takenIds = new Set([
       ...(draftState.picks || []).map(p => p.playerId),
