@@ -35,14 +35,41 @@ export async function fetchAllLeagueData(leagueId) {
   return { league, teams };
 }
 
+// `/players/nfl` is several MB and Sleeper's docs ask callers to keep the
+// fetch to "once per day at most." Sleeper updates ADP (the `search_rank`
+// field every page in this app sorts by) at most a few times per day,
+// so a 24h cache picks up their changes "at least once per day" without
+// thrashing their servers.
+//
+// localStorage (not sessionStorage) so the cache survives tab restarts —
+// otherwise a user who keeps a draft room open across days would never
+// re-fetch, and a user who closes/reopens their tab mid-day would pay
+// the multi-MB download every time. Storing `fetchedAt` alongside the
+// payload lets us bust the cache deterministically once 24h elapse.
+const PLAYERS_CACHE_KEY = 'sleeperPlayers_v4';
+const PLAYER_DB_TTL_MS = 24 * 60 * 60 * 1000;
+
 export async function fetchPlayerDB() {
-  const CACHE_KEY = 'sleeperPlayers_v3';
-  const cached = sessionStorage.getItem(CACHE_KEY);
-  if (cached) {
-    try { return JSON.parse(cached); } catch (e) {}
-  }
+  try {
+    const cached = localStorage.getItem(PLAYERS_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const fresh = parsed?.fetchedAt &&
+        Date.now() - parsed.fetchedAt < PLAYER_DB_TTL_MS;
+      if (fresh && parsed.data) return parsed.data;
+    }
+  } catch (e) { /* fall through to network fetch */ }
+
   const data = await sleeperGet('/players/nfl');
-  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+  try {
+    localStorage.setItem(
+      PLAYERS_CACHE_KEY,
+      JSON.stringify({ data, fetchedAt: Date.now() })
+    );
+  } catch (e) {
+    // Quota exceeded is the only realistic failure here. The fetch
+    // succeeded so we still return live data — we just lose the cache.
+  }
   return data;
 }
 
